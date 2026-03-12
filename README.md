@@ -1,20 +1,20 @@
 # Cardio Pulse
 
-Мобильное приложение для тренировок с BLE-пульсометром (GEOID HS500 и совместимые HRM).
+Тренировочное мобильное приложение для BLE-пульсометра  
+`GEOID HS500` и совместимых heart-rate датчиков.
 
-## Что умеет сейчас
+## Возможности
 
-- Подключение к BLE датчику пульса с fallback-логикой сканирования
-- Крупное текущее BPM поверх графика
-- Временной график пульса с масштабируемой шкалой и сеткой
-- Пять зон пульса: recovery / fat-burning / aerobic / anaerobic / maximum
-- Цветовая индикация по зоне и отдельный danger-сценарий
-- Автосохранение тренировок в CSV и JSON
-- История сессий: просмотр, удаление одной или всех записей
-- Таймер/секундомер с iOS-style roller (`mm:ss`)
-- Медиа-кнопки (prev/play/pause/next) через системные Android media key events
-- Звуковые и голосовые уведомления (EN/RU)
-- Связанный переключатель языка интерфейса и TTS
+- BLE подключение к HR-датчику с устойчивым fallback-сканированием.
+- Крупный текущий BPM поверх графика.
+- Детальный график пульса с сеткой и динамическим диапазоном.
+- 5 зон пульса: `Recovery`, `Fat-burning`, `Aerobic`, `Anaerobic`, `Maximum`.
+- Цветовая индикация зон и danger-сценарий.
+- Автосохранение тренировок в `CSV` и `JSON`.
+- История сессий: просмотр и удаление логов.
+- Таймер/секундомер с iOS-style roller (`mm:ss`).
+- Медиа-кнопки (`prev/play/pause/next`) через системные Android media events.
+- Звуковые + голосовые уведомления (EN/RU), связанный язык UI/TTS.
 
 ## Быстрый старт (разработка)
 
@@ -33,25 +33,27 @@ flutter build apk --release
 
 - `build/app/outputs/flutter-apk/app-release.apk`
 
-## APK для скачивания
+## Скачать готовые файлы
 
-Готовая сборка хранится в репозитории:
+Готовые файлы хранятся в `releases/`:
 
 - `releases/CardioPulse-v1.0.0-release.apk`
 - `releases/CardioPulse-v1.0.0-release.aab`
 - `releases/CardioPulse-iOS-source-v1.0.0.zip`
 
-После публикации изменений файл можно скачать напрямую по ссылке:
+Прямые ссылки:
 
-- `https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-v1.0.0-release.apk`
-- `https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-v1.0.0-release.aab`
-- `https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-iOS-source-v1.0.0.zip`
+- [CardioPulse-v1.0.0-release.apk](https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-v1.0.0-release.apk)
+- [CardioPulse-v1.0.0-release.aab](https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-v1.0.0-release.aab)
+- [CardioPulse-iOS-source-v1.0.0.zip](https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-iOS-source-v1.0.0.zip)
 
 Важно:
 
 - `APK/AAB` — готовые Android-артефакты.
-- Для iOS из Linux нельзя собрать `.ipa` (нужен macOS + Xcode).  
-  Поэтому в репозиторий добавлен готовый iOS source-пакет для сборки на Mac.
+- Для iOS из Linux нельзя собрать `.ipa` (нужен macOS + Xcode).
+- Для iOS добавлен готовый source-архив для сборки на Mac.
+- История изменений: `CHANGELOG.md`.
+- Текущие релиз-заметки: `RELEASE_NOTES_v1.0.0.md`.
 
 ## Установка на Android через ADB
 
@@ -73,3 +75,4 @@ adb install -r "build/app/outputs/flutter-apk/app-release.apk"
 - `lib/data/media/` — Android media controls
 - `lib/domain/` — модели и расчет зон
 - `lib/presentation/` — Home / Settings / History UI
+- `releases/` — готовые скачиваемые артефакты
