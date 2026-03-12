@@ -38,10 +38,20 @@ flutter build apk --release
 Готовая сборка хранится в репозитории:
 
 - `releases/CardioPulse-v1.0.0-release.apk`
+- `releases/CardioPulse-v1.0.0-release.aab`
+- `releases/CardioPulse-iOS-source-v1.0.0.zip`
 
 После публикации изменений файл можно скачать напрямую по ссылке:
 
 - `https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-v1.0.0-release.apk`
+- `https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-v1.0.0-release.aab`
+- `https://github.com/danil024/cardio_app/raw/main/releases/CardioPulse-iOS-source-v1.0.0.zip`
+
+Важно:
+
+- `APK/AAB` — готовые Android-артефакты.
+- Для iOS из Linux нельзя собрать `.ipa` (нужен macOS + Xcode).  
+  Поэтому в репозиторий добавлен готовый iOS source-пакет для сборки на Mac.
 
 ## Установка на Android через ADB
 
