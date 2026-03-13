@@ -1,16 +1,16 @@
-# Release Files
+# Release Artifacts
 
-This folder contains ready-to-download build artifacts for the current project state.
+| File | Platform | Description |
+|---|---|---|
+| `CardioHR-v2.0.0.apk` | Android | Ready-to-install APK |
+| `CardioHR-iOS-source-v2.0.0.zip` | iOS | Source archive for Xcode build on macOS |
 
-## Android
+## Installation
 
-- `CardioPulse-v1.0.0-release.apk` - installable APK
-- `CardioPulse-v1.0.0-release.aab` - Android App Bundle for Play Console
+**Android**: Transfer the APK to your phone and install, or use ADB:
 
-## iOS
+```bash
+adb install -r CardioHR-v2.0.0.apk
+```
 
-- `CardioPulse-iOS-source-v1.0.0.zip` - iOS-ready source package
-
-Notes:
-
-- `.ipa` is not generated on Linux. To build iOS binary, open the project on macOS with Xcode and run Flutter iOS build/signing there.
+**iOS**: Unzip the source archive on a Mac, run `flutter pub get`, then build with Xcode.

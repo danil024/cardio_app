@@ -35,9 +35,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Приложению нужен доступ к Bluetooth для подключения к пульсометру GEOID HS500</string>
+	<string>Cardio HR Monitor needs Bluetooth to connect to your heart rate sensor and display real-time pulse data.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>Приложению нужен доступ к Bluetooth для подключения к пульсометру GEOID HS500</string>
+	<string>Cardio HR Monitor needs Bluetooth to connect to your heart rate sensor and display real-time pulse data.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
