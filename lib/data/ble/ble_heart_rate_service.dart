@@ -25,6 +25,7 @@ class BleHeartRateService {
   BluetoothCharacteristic? _hrCharacteristic;
   StreamSubscription? _scanSubscription;
   StreamSubscription? _characteristicSubscription;
+  StreamSubscription<BluetoothConnectionState>? _deviceConnectionSub;
   Timer? _mockTimer;
   Duration _mockInterval = AppConstants.mockHrInterval;
 
@@ -180,16 +181,60 @@ class BleHeartRateService {
     }
   }
 
+  Future<bool> reconnectLastKnownDevice({bool force = false}) async {
+    final device = _device;
+    if (device == null) {
+      return false;
+    }
+    if (!force && _status == BleConnectionStatus.connected) {
+      return true;
+    }
+    try {
+      await _characteristicSubscription?.cancel();
+      _characteristicSubscription = null;
+      await _deviceConnectionSub?.cancel();
+      _deviceConnectionSub = null;
+      try {
+        await _hrCharacteristic?.setNotifyValue(false);
+      } catch (_) {}
+      _hrCharacteristic = null;
+      try {
+        await device.disconnect();
+      } catch (_) {}
+      await _connectToDevice(
+        device,
+        connectionTimeout: const Duration(seconds: 4),
+      );
+      return _status == BleConnectionStatus.connected;
+    } catch (_) {
+      _setStatus(BleConnectionStatus.disconnected);
+      return false;
+    }
+  }
+
   Future<void> startMockMode() async {
     _isMockMode = true;
     _startMock();
   }
 
-  Future<void> _connectToDevice(BluetoothDevice device) async {
+  Future<void> _connectToDevice(
+    BluetoothDevice device, {
+    Duration connectionTimeout = const Duration(seconds: 15),
+  }) async {
     _device = device;
     _setStatus(BleConnectionStatus.connecting);
+    await _characteristicSubscription?.cancel();
+    _characteristicSubscription = null;
+    await _deviceConnectionSub?.cancel();
+    _deviceConnectionSub = null;
 
-    await device.connect(timeout: const Duration(seconds: 15));
+    await device.connect(timeout: connectionTimeout);
+    _deviceConnectionSub = device.connectionState.listen((connectionState) {
+      if (connectionState == BluetoothConnectionState.disconnected &&
+          _status != BleConnectionStatus.disconnected) {
+        _setStatus(BleConnectionStatus.disconnected);
+      }
+    });
 
     final services = await device.discoverServices();
     for (final service in services) {
@@ -276,6 +321,8 @@ class BleHeartRateService {
     _scanSubscription = null;
     await _characteristicSubscription?.cancel();
     _characteristicSubscription = null;
+    await _deviceConnectionSub?.cancel();
+    _deviceConnectionSub = null;
     await _hrCharacteristic?.setNotifyValue(false);
     _hrCharacteristic = null;
     await _device?.disconnect();

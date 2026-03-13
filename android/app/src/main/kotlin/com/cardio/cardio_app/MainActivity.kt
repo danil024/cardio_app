@@ -6,9 +6,11 @@ import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import kotlin.system.exitProcess
 
 class MainActivity: FlutterActivity() {
     private val mediaChannel = "cardio_app/media_control"
+    private val appControlChannel = "cardio_app/app_control"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -34,6 +36,17 @@ class MainActivity: FlutterActivity() {
                     "next" -> {
                         dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
                         result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, appControlChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "forceExit" -> {
+                        finishAffinity()
+                        result.success(null)
+                        exitProcess(0)
                     }
                     else -> result.notImplemented()
                 }

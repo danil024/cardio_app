@@ -26,6 +26,7 @@ class HomeState extends Equatable {
     this.isTimerRunning = false,
     this.timerStartedAt,
     this.timerEndsAt,
+    this.shouldForceCloseApp = false,
   });
 
   final BleConnectionStatus bleStatus;
@@ -46,6 +47,7 @@ class HomeState extends Equatable {
   final bool isTimerRunning;
   final DateTime? timerStartedAt;
   final DateTime? timerEndsAt;
+  final bool shouldForceCloseApp;
 
   static const HomeState initial = HomeState();
 
@@ -68,6 +70,7 @@ class HomeState extends Equatable {
     bool? isTimerRunning,
     Object? timerStartedAt = _unset,
     Object? timerEndsAt = _unset,
+    bool? shouldForceCloseApp,
   }) {
     return HomeState(
       bleStatus: bleStatus ?? this.bleStatus,
@@ -94,6 +97,7 @@ class HomeState extends Equatable {
       timerEndsAt: identical(timerEndsAt, _unset)
           ? this.timerEndsAt
           : timerEndsAt as DateTime?,
+      shouldForceCloseApp: shouldForceCloseApp ?? this.shouldForceCloseApp,
     );
   }
 
@@ -117,5 +121,6 @@ class HomeState extends Equatable {
         isTimerRunning,
         timerStartedAt,
         timerEndsAt,
+        shouldForceCloseApp,
       ];
 }

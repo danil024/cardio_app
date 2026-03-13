@@ -29,6 +29,9 @@ const _keyTimerDurationSeconds = 'timer_duration_seconds';
 const _keyEnableRangeAlert = 'enable_range_alert';
 const _keyRangeAlertMinBpm = 'range_alert_min_bpm';
 const _keyRangeAlertMaxBpm = 'range_alert_max_bpm';
+const _keyHrRangeMode = 'hr_range_mode';
+const _keyEnableRangeBeep = 'enable_range_beep';
+const _keyEnableRangeVoice = 'enable_range_voice';
 
 /// Хранилище настроек
 class SettingsStorage {
@@ -75,9 +78,16 @@ class SettingsStorage {
     _prefs.setBool(_keyFirstRun, value);
   }
 
-  int get chartWindowMinutes =>
-      _prefs.getInt(_keyChartWindowMinutes) ??
-      AppConstants.defaultChartWindowMinutes;
+  int get chartWindowMinutes {
+    final stored =
+        _prefs.getInt(_keyChartWindowMinutes) ?? AppConstants.defaultChartWindowMinutes;
+    if (AppConstants.chartWindowOptions.contains(stored)) {
+      return stored;
+    }
+    // Soft migration from legacy 3-minute option and any invalid values.
+    _prefs.setInt(_keyChartWindowMinutes, AppConstants.defaultChartWindowMinutes);
+    return AppConstants.defaultChartWindowMinutes;
+  }
 
   set chartWindowMinutes(int value) {
     if (AppConstants.chartWindowOptions.contains(value)) {
@@ -189,6 +199,47 @@ class SettingsStorage {
 
   set enableRangeAlert(bool value) {
     _prefs.setBool(_keyEnableRangeAlert, value);
+  }
+
+  String get hrRangeMode {
+    final stored = _prefs.getString(_keyHrRangeMode);
+    if (stored == 'zone' || stored == 'manual') {
+      return stored!;
+    }
+    // Migration from legacy toggle: enabled manual range -> manual mode.
+    return enableRangeAlert ? 'manual' : 'zone';
+  }
+
+  set hrRangeMode(String value) {
+    if (value == 'zone' || value == 'manual') {
+      _prefs.setString(_keyHrRangeMode, value);
+    }
+  }
+
+  bool get enableRangeBeep {
+    final stored = _prefs.getBool(_keyEnableRangeBeep);
+    if (stored != null) {
+      return stored;
+    }
+    // Migration default: preserve previous "sound enabled" behavior.
+    return true;
+  }
+
+  set enableRangeBeep(bool value) {
+    _prefs.setBool(_keyEnableRangeBeep, value);
+  }
+
+  bool get enableRangeVoice {
+    final stored = _prefs.getBool(_keyEnableRangeVoice);
+    if (stored != null) {
+      return stored;
+    }
+    // Migration default: preserve previous "voice enabled" behavior.
+    return true;
+  }
+
+  set enableRangeVoice(bool value) {
+    _prefs.setBool(_keyEnableRangeVoice, value);
   }
 
   int get rangeAlertMinBpm {

@@ -56,6 +56,16 @@ class AppStrings {
   static String rangeAlertSubtitle(String languageCode) => isRu(languageCode)
       ? 'Сигнал, если пульс ниже минимума или выше максимума'
       : 'Alert when HR is below minimum or above maximum';
+  static String hrAlertModeTitle(String languageCode) =>
+      isRu(languageCode) ? 'Режим контроля пульса' : 'Heart rate control mode';
+  static String hrAlertModeZone(String languageCode) =>
+      isRu(languageCode) ? 'Целевая зона' : 'Target zone';
+  static String hrAlertModeManual(String languageCode) =>
+      isRu(languageCode) ? 'Ручной диапазон' : 'Manual range';
+  static String rangeBeepToggle(String languageCode) =>
+      isRu(languageCode) ? 'Биппер диапазона' : 'Range beeper';
+  static String rangeVoiceToggle(String languageCode) =>
+      isRu(languageCode) ? 'Голос диапазона' : 'Range voice';
   static String allowedRangeLabel(String languageCode, int minBpm, int maxBpm) =>
       isRu(languageCode)
           ? 'Допустимый диапазон: $minBpm-$maxBpm уд/мин'

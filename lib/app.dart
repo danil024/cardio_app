@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/audio/notification_audio_service.dart';
 import 'data/ble/ble_heart_rate_service.dart';
 import 'data/media/media_control_service.dart';
+import 'data/platform/app_control_service.dart';
 import 'data/storage/history_repository.dart';
 import 'data/storage/session_storage.dart';
 import 'data/storage/settings_storage.dart';
@@ -34,6 +35,7 @@ class CardioApp extends StatelessWidget {
         final sessionStorage = SessionStorage();
         final audioService = NotificationAudioService();
         final mediaControlService = MediaControlService();
+        final appControlService = AppControlService();
         return MultiRepositoryProvider(
           providers: [
             RepositoryProvider<BleHeartRateService>.value(value: bleService),
@@ -45,6 +47,7 @@ class CardioApp extends StatelessWidget {
                 value: audioService),
             RepositoryProvider<MediaControlService>.value(
                 value: mediaControlService),
+            RepositoryProvider<AppControlService>.value(value: appControlService),
             RepositoryProvider<SettingsStorage>.value(value: settings),
           ],
           child: BlocProvider(

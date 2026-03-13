@@ -103,3 +103,23 @@ class HomeTimerReset extends HomeEvent {
 class HomeTimerTicked extends HomeEvent {
   const HomeTimerTicked();
 }
+
+class HomeReconnectAttemptRequested extends HomeEvent {
+  const HomeReconnectAttemptRequested();
+}
+
+class HomeReconnectSaveCheckpointReached extends HomeEvent {
+  const HomeReconnectSaveCheckpointReached();
+}
+
+class HomeReconnectGiveUpReached extends HomeEvent {
+  const HomeReconnectGiveUpReached();
+}
+
+class HomeForceCloseHandled extends HomeEvent {
+  const HomeForceCloseHandled();
+}
+
+class HomeDataWatchdogTicked extends HomeEvent {
+  const HomeDataWatchdogTicked();
+}

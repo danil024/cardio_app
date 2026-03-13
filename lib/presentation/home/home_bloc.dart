@@ -55,6 +55,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeTimerStartPauseToggled>(_onTimerStartPauseToggled);
     on<HomeTimerReset>(_onTimerReset);
     on<HomeTimerTicked>(_onTimerTicked);
+    on<HomeReconnectAttemptRequested>(_onReconnectAttemptRequested);
+    on<HomeReconnectSaveCheckpointReached>(_onReconnectSaveCheckpointReached);
+    on<HomeReconnectGiveUpReached>(_onReconnectGiveUpReached);
+    on<HomeForceCloseHandled>(_onForceCloseHandled);
+    on<HomeDataWatchdogTicked>(_onDataWatchdogTicked);
 
     _bleStatusSub = _bleService.statusStream.listen((s) {
       add(HomeBleStatusChanged(s));
@@ -62,6 +67,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _hrSub = _bleService.heartRateStream.listen((r) {
       add(HomeHeartRateReceived(r));
     });
+    _startDataWatchdog();
   }
 
   final BleHeartRateService _bleService;
@@ -73,6 +79,17 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   StreamSubscription<HrReading>? _hrSub;
   final List<HrReading> _sessionReadings = [];
   Timer? _timerTicker;
+  Timer? _dataWatchdogTimer;
+  Timer? _reconnectAttemptTimer;
+  Timer? _reconnectSaveTimer;
+  Timer? _reconnectGiveUpTimer;
+  bool _manualDisconnectRequested = false;
+  bool _reconnectFlowActive = false;
+  bool _reconnectSaveDone = false;
+  bool _reconnectAttemptInFlight = false;
+  DateTime? _lastHeartRateAt;
+
+  static const Duration _silentDropThreshold = Duration(seconds: 5);
 
   static WorkoutTimerMode _timerModeFromSettings(String mode) {
     return mode == 'stopwatch'
@@ -85,10 +102,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     Emitter<HomeState> emit,
   ) async {
     if (state.bleStatus == BleConnectionStatus.connected) return;
+    _manualDisconnectRequested = false;
+    _cancelReconnectFlow();
+    _lastHeartRateAt = null;
 
     emit(state.copyWith(
       bleStatus: BleConnectionStatus.scanning,
       isTestMode: false,
+      shouldForceCloseApp: false,
     ));
 
     try {
@@ -105,16 +126,22 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeDisconnectRequested event,
     Emitter<HomeState> emit,
   ) async {
+    _manualDisconnectRequested = true;
+    _cancelReconnectFlow();
+    _lastHeartRateAt = null;
     await _bleService.disconnect();
     await _audioService.updateZoneState(
       inDanger: false,
       inCustomEmergency: false,
       aboveTarget: false,
       belowTarget: false,
+      useBeep: false,
+      useVoice: false,
     );
     emit(state.copyWith(
       bleStatus: BleConnectionStatus.disconnected,
       isTestMode: false,
+      shouldForceCloseApp: false,
     ));
   }
 
@@ -123,10 +150,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     Emitter<HomeState> emit,
   ) async {
     if (state.isTestMode) {
+      _manualDisconnectRequested = true;
+      _cancelReconnectFlow();
+      _lastHeartRateAt = null;
       await _bleService.disconnect();
       emit(state.copyWith(
         bleStatus: BleConnectionStatus.disconnected,
         isTestMode: false,
+        shouldForceCloseApp: false,
       ));
       return;
     }
@@ -140,24 +171,67 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     ));
   }
 
-  void _onBleStatusChanged(
-      HomeBleStatusChanged event, Emitter<HomeState> emit) {
-    if (event.status == BleConnectionStatus.connected && !state.isRecording) {
-      add(const HomeStartRecording());
+  Future<void> _onBleStatusChanged(
+      HomeBleStatusChanged event, Emitter<HomeState> emit) async {
+    final previousStatus = state.bleStatus;
+    final nextStatus = event.status;
+
+    if (nextStatus == BleConnectionStatus.connected) {
+      _manualDisconnectRequested = false;
+      _cancelReconnectFlow();
+      _lastHeartRateAt = DateTime.now();
+      if (!state.isRecording) {
+        add(const HomeStartRecording());
+      }
+      emit(state.copyWith(
+        bleStatus: nextStatus,
+        errorMessage: null,
+        shouldForceCloseApp: false,
+      ));
+      return;
     }
-    if (event.status == BleConnectionStatus.disconnected && state.isRecording) {
-      add(const HomeStopRecording());
+
+    final isManualDisconnect = _manualDisconnectRequested;
+    if (isManualDisconnect &&
+        (nextStatus == BleConnectionStatus.disconnected ||
+            nextStatus == BleConnectionStatus.error)) {
+      _manualDisconnectRequested = false;
+      _cancelReconnectFlow();
+      if (state.isRecording) {
+        add(const HomeStopRecording());
+      }
+      emit(state.copyWith(
+        bleStatus: nextStatus,
+        isTestMode: false,
+        shouldForceCloseApp: false,
+      ));
+      _lastHeartRateAt = null;
+      return;
     }
+
+    final unexpectedDrop =
+        !state.isTestMode &&
+        previousStatus == BleConnectionStatus.connected &&
+        (nextStatus == BleConnectionStatus.disconnected ||
+            nextStatus == BleConnectionStatus.error);
+    if (unexpectedDrop) {
+      _startReconnectFlow();
+    }
+
     emit(state.copyWith(
-      bleStatus: event.status,
-      isTestMode: event.status == BleConnectionStatus.disconnected
+      bleStatus: nextStatus,
+      isTestMode: nextStatus == BleConnectionStatus.disconnected
           ? false
           : state.isTestMode,
     ));
+    if (nextStatus != BleConnectionStatus.connected) {
+      _lastHeartRateAt = null;
+    }
   }
 
   void _onHeartRateReceived(
       HomeHeartRateReceived event, Emitter<HomeState> emit) {
+    _lastHeartRateAt = DateTime.now();
     final zones = _settingsStorage.zones;
     final reading = event.reading;
 
@@ -191,18 +265,23 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _audioService.soundEnabled = _settingsStorage.soundEnabled;
     _audioService.ttsEnabled = _settingsStorage.ttsEnabled;
     _audioService.setTtsLanguage(_settingsStorage.ttsLanguage);
-    final useRangeAlert = _settingsStorage.enableRangeAlert;
+    final rangeMode = _settingsStorage.hrRangeMode;
+    final useManualRange = rangeMode == 'manual';
     final rangeMin = _settingsStorage.rangeAlertMinBpm;
     final rangeMax = _settingsStorage.rangeAlertMaxBpm;
-    final aboveGuidance =
-        useRangeAlert ? reading.heartRate > rangeMax : zones.isAboveTarget(reading.heartRate);
-    final belowGuidance =
-        useRangeAlert ? reading.heartRate < rangeMin : zones.isBelowTarget(reading.heartRate);
+    final aboveGuidance = useManualRange
+        ? reading.heartRate > rangeMax
+        : zones.isAboveTarget(reading.heartRate);
+    final belowGuidance = useManualRange
+        ? reading.heartRate < rangeMin
+        : zones.isBelowTarget(reading.heartRate);
     _audioService.updateZoneState(
       inDanger: zones.isInDangerZone(reading.heartRate),
       inCustomEmergency: false,
       aboveTarget: aboveGuidance,
       belowTarget: belowGuidance,
+      useBeep: _settingsStorage.enableRangeBeep,
+      useVoice: _settingsStorage.enableRangeVoice,
     );
 
     emit(state.copyWith(
@@ -237,22 +316,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeStopRecording event,
     Emitter<HomeState> emit,
   ) async {
-    final session = state.session?.copyWith(endedAt: DateTime.now());
-    if (session != null && session.readings.isNotEmpty) {
-      await _sessionStorage.saveSession(session);
-      final suggestCleanup = await _sessionStorage.shouldSuggestCleanup();
-      emit(state.copyWith(
-        isRecording: false,
-        session: null,
-        shouldShowCleanupDialog: suggestCleanup,
-      ));
-    } else {
-      emit(state.copyWith(
-        isRecording: false,
-        session: null,
-      ));
-    }
-    _sessionReadings.clear();
+    await _persistCurrentSession(emit, suggestCleanup: true);
   }
 
   void _onDismissCleanupDialog(
@@ -428,6 +492,160 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     ));
   }
 
+  Future<void> _onReconnectAttemptRequested(
+    HomeReconnectAttemptRequested event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (!_reconnectFlowActive ||
+        _manualDisconnectRequested ||
+        state.bleStatus == BleConnectionStatus.connected ||
+        state.isTestMode ||
+        _reconnectAttemptInFlight) {
+      return;
+    }
+    _reconnectAttemptInFlight = true;
+    try {
+      await _bleService.reconnectLastKnownDevice(force: true);
+    } finally {
+      _reconnectAttemptInFlight = false;
+    }
+  }
+
+  Future<void> _onReconnectSaveCheckpointReached(
+    HomeReconnectSaveCheckpointReached event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (!_reconnectFlowActive ||
+        _reconnectSaveDone ||
+        state.bleStatus == BleConnectionStatus.connected ||
+        _manualDisconnectRequested) {
+      return;
+    }
+    _reconnectSaveDone = true;
+    await _persistCurrentSession(emit, suggestCleanup: false);
+  }
+
+  void _onReconnectGiveUpReached(
+    HomeReconnectGiveUpReached event,
+    Emitter<HomeState> emit,
+  ) {
+    if (!_reconnectFlowActive ||
+        state.bleStatus == BleConnectionStatus.connected ||
+        _manualDisconnectRequested) {
+      return;
+    }
+    _cancelReconnectFlow();
+    emit(state.copyWith(
+      shouldForceCloseApp: true,
+      errorMessage:
+          'Connection lost and could not be restored within 25 seconds.',
+      bleStatus: BleConnectionStatus.error,
+      isTestMode: false,
+    ));
+  }
+
+  void _onForceCloseHandled(
+    HomeForceCloseHandled event,
+    Emitter<HomeState> emit,
+  ) {
+    if (!state.shouldForceCloseApp) {
+      return;
+    }
+    emit(state.copyWith(shouldForceCloseApp: false));
+  }
+
+  Future<void> _onDataWatchdogTicked(
+    HomeDataWatchdogTicked event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (_reconnectFlowActive ||
+        _manualDisconnectRequested ||
+        state.isTestMode ||
+        state.bleStatus != BleConnectionStatus.connected) {
+      return;
+    }
+    final last = _lastHeartRateAt;
+    if (last == null) {
+      return;
+    }
+    if (DateTime.now().difference(last) < _silentDropThreshold) {
+      return;
+    }
+
+    _startReconnectFlow(
+      saveDelay: Duration.zero,
+      giveUpDelay: const Duration(seconds: 20),
+    );
+    emit(state.copyWith(
+      bleStatus: BleConnectionStatus.error,
+      errorMessage: 'Heart rate signal lost. Reconnecting...',
+    ));
+  }
+
+  void _startReconnectFlow({
+    Duration saveDelay = const Duration(seconds: 5),
+    Duration giveUpDelay = const Duration(seconds: 25),
+  }) {
+    if (_reconnectFlowActive) {
+      return;
+    }
+    _reconnectFlowActive = true;
+    _reconnectSaveDone = false;
+    _reconnectAttemptInFlight = false;
+    add(const HomeReconnectAttemptRequested());
+    _reconnectAttemptTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      add(const HomeReconnectAttemptRequested());
+    });
+    if (saveDelay == Duration.zero) {
+      add(const HomeReconnectSaveCheckpointReached());
+    } else {
+      _reconnectSaveTimer = Timer(saveDelay, () {
+        add(const HomeReconnectSaveCheckpointReached());
+      });
+    }
+    _reconnectGiveUpTimer = Timer(giveUpDelay, () {
+      add(const HomeReconnectGiveUpReached());
+    });
+  }
+
+  void _cancelReconnectFlow() {
+    _reconnectFlowActive = false;
+    _reconnectSaveDone = false;
+    _reconnectAttemptInFlight = false;
+    _reconnectAttemptTimer?.cancel();
+    _reconnectAttemptTimer = null;
+    _reconnectSaveTimer?.cancel();
+    _reconnectSaveTimer = null;
+    _reconnectGiveUpTimer?.cancel();
+    _reconnectGiveUpTimer = null;
+  }
+
+  Future<void> _persistCurrentSession(
+    Emitter<HomeState> emit, {
+    required bool suggestCleanup,
+  }) async {
+    final currentSession = state.session?.copyWith(endedAt: DateTime.now());
+    if (currentSession == null || currentSession.readings.isEmpty) {
+      emit(state.copyWith(
+        isRecording: false,
+        session: null,
+      ));
+      _sessionReadings.clear();
+      return;
+    }
+
+    await _sessionStorage.saveSession(currentSession);
+    final shouldSuggestCleanup = suggestCleanup
+        ? await _sessionStorage.shouldSuggestCleanup()
+        : false;
+    emit(state.copyWith(
+      isRecording: false,
+      session: null,
+      shouldShowCleanupDialog: shouldSuggestCleanup,
+    ));
+    _sessionReadings.clear();
+  }
+
   void _startTimerTicker() {
     _stopTimerTicker();
     _timerTicker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -440,9 +658,19 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _timerTicker = null;
   }
 
+  void _startDataWatchdog() {
+    _dataWatchdogTimer?.cancel();
+    _dataWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      add(const HomeDataWatchdogTicked());
+    });
+  }
+
   @override
   Future<void> close() {
     _stopTimerTicker();
+    _dataWatchdogTimer?.cancel();
+    _dataWatchdogTimer = null;
+    _cancelReconnectFlow();
     _bleStatusSub?.cancel();
     _hrSub?.cancel();
     _bleService.dispose();

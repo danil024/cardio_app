@@ -58,33 +58,19 @@ class HrChart extends StatelessWidget {
     chartMax = chartMax.clamp(60.0, 240.0);
 
     final maxX = Duration(minutes: chartWindowMinutes).inSeconds.toDouble();
-    // Stable aggregation by fixed time buckets prevents old peaks from
-    // "changing" when new points arrive.
-    final bucketSizeSec = chartWindowMinutes <= 5
-        ? 1
-        : chartWindowMinutes <= 10
-            ? 2
-            : 4;
-    final cutoffEpochSec = cutoff.millisecondsSinceEpoch ~/ 1000;
-    final maxByBucket = <int, int>{};
-    for (final reading in filtered) {
-      final tsSec = reading.timestamp.millisecondsSinceEpoch ~/ 1000;
-      final bucketStartSec = tsSec - (tsSec % bucketSizeSec);
-      final currentMax = maxByBucket[bucketStartSec];
-      if (currentMax == null || reading.heartRate > currentMax) {
-        maxByBucket[bucketStartSec] = reading.heartRate;
-      }
-    }
-    final bucketStarts = maxByBucket.keys.toList()..sort();
-    final spots = <FlSpot>[
-      for (final bucketStartSec in bucketStarts)
-        if ((bucketStartSec - cutoffEpochSec) >= 0 &&
-            (bucketStartSec - cutoffEpochSec) <= maxX)
-          FlSpot(
-            (bucketStartSec - cutoffEpochSec).toDouble(),
-            maxByBucket[bucketStartSec]!.toDouble(),
-          ),
-    ];
+    // Draw actual visible points over the selected time window so the chart
+    // always reflects newest values and continuously drops old ones.
+    final spots = filtered
+        .map((reading) {
+          final seconds =
+              reading.timestamp.difference(cutoff).inMilliseconds / 1000;
+          if (seconds < 0 || seconds > maxX) {
+            return null;
+          }
+          return FlSpot(seconds.toDouble(), reading.heartRate.toDouble());
+        })
+        .whereType<FlSpot>()
+        .toList();
     if (spots.length < 2) {
       return Center(
         child: Text(

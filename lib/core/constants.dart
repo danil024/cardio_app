@@ -39,7 +39,7 @@ class AppConstants {
   static const Duration notificationCooldown = Duration(seconds: 20);
 
   // Окно графика (минуты)
-  static const List<int> chartWindowOptions = [3, 5, 10, 20];
+  static const List<int> chartWindowOptions = [5, 10, 20];
   static const int defaultChartWindowMinutes = 5;
   static const List<int> sensorPollIntervalOptionsMs = [500, 1000, 5000, 20000];
   static const int defaultSensorPollIntervalMs = 1000;

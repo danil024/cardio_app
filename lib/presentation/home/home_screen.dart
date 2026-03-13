@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/app_strings.dart';
 import '../../data/ble/ble_heart_rate_service.dart';
 import '../../data/media/media_control_service.dart';
+import '../../data/platform/app_control_service.dart';
 import '../../data/storage/settings_storage.dart';
 import '../../domain/models/hr_zones.dart';
 import '../history/history_screen.dart';
@@ -59,7 +61,8 @@ class _HomeScreenState extends State<HomeScreen> {
       listenWhen: (prev, curr) =>
           prev.bleStatus != curr.bleStatus ||
           prev.settingsVersion != curr.settingsVersion ||
-          (curr.shouldShowCleanupDialog && !prev.shouldShowCleanupDialog),
+          (curr.shouldShowCleanupDialog && !prev.shouldShowCleanupDialog) ||
+          (!prev.shouldForceCloseApp && curr.shouldForceCloseApp),
       listener: (context, state) {
         final keepOn = context.read<SettingsStorage>().keepScreenOn;
         if (state.bleStatus == BleConnectionStatus.connected && keepOn) {
@@ -70,9 +73,20 @@ class _HomeScreenState extends State<HomeScreen> {
         if (state.shouldShowCleanupDialog) {
           _showCleanupDialog(context, languageCode);
         }
+        if (state.shouldForceCloseApp) {
+          context.read<HomeBloc>().add(const HomeForceCloseHandled());
+          unawaited(context.read<AppControlService>().forceExit());
+        }
       },
-      child: Scaffold(
-        body: BlocBuilder<HomeBloc, HomeState>(
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
+          body: BlocBuilder<HomeBloc, HomeState>(
           builder: (context, state) {
             return SafeArea(
               child: Column(
@@ -121,6 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
+      ),
       ),
     );
   }
@@ -286,21 +301,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  String _bleStatusText(BleConnectionStatus status, String languageCode) {
-    switch (status) {
-      case BleConnectionStatus.disconnected:
-        return AppStrings.disconnected(languageCode);
-      case BleConnectionStatus.scanning:
-        return AppStrings.scanning(languageCode);
-      case BleConnectionStatus.connecting:
-        return AppStrings.connecting(languageCode);
-      case BleConnectionStatus.connected:
-        return AppStrings.connected(languageCode);
-      case BleConnectionStatus.error:
-        return AppStrings.error(languageCode);
-    }
-  }
-
   Color _bleStatusColor(BleConnectionStatus status) {
     switch (status) {
       case BleConnectionStatus.connected:
@@ -309,6 +309,20 @@ class _HomeScreenState extends State<HomeScreen> {
         return Colors.red;
       default:
         return Colors.grey;
+    }
+  }
+
+  IconData _bleStatusIcon(BleConnectionStatus status) {
+    switch (status) {
+      case BleConnectionStatus.connected:
+        return Icons.bluetooth_connected;
+      case BleConnectionStatus.scanning:
+      case BleConnectionStatus.connecting:
+        return Icons.bluetooth_searching;
+      case BleConnectionStatus.error:
+        return Icons.bluetooth_disabled;
+      case BleConnectionStatus.disconnected:
+        return Icons.bluetooth;
     }
   }
 
@@ -594,7 +608,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final isBusy = state.bleStatus == BleConnectionStatus.scanning ||
         state.bleStatus == BleConnectionStatus.connecting;
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(14),
       onTap: isBusy
           ? null
           : () {
@@ -605,34 +619,35 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.white24),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Icon(
+              _bleStatusIcon(state.bleStatus),
+              size: 16,
+              color: Colors.white70,
+            ),
+            const SizedBox(width: 6),
             Container(
-              width: 8,
-              height: 8,
+              width: 7,
+              height: 7,
               decoration: BoxDecoration(
                 color: _bleStatusColor(state.bleStatus),
                 shape: BoxShape.circle,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Text(
               isConnected
                   ? AppStrings.disconnect(languageCode)
                   : AppStrings.connect(languageCode),
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              _bleStatusText(state.bleStatus, languageCode),
-              style: const TextStyle(fontSize: 11, color: Colors.white70),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
             ),
           ],
         ),

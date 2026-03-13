@@ -17,31 +17,27 @@ class NotificationAudioService {
   final FlutterTts _tts = FlutterTts();
   final AudioPlayer _tonePlayer = AudioPlayer();
 
-  bool _soundEnabled = true;
-  bool _ttsEnabled = true;
+  bool soundEnabled = true;
+  bool ttsEnabled = true;
   bool _ttsReady = false;
   String _ttsLanguage = AppStrings.en;
   AlertState _alertState = AlertState.none;
-  DateTime? _outOfZoneSince;
-  DateTime? _backInZoneSince;
   DateTime? _lastTtsAt;
-  int _outOfZoneSignals = 0;
   Timer? _alertTimer;
   bool _disposed = false;
+  bool _rangeUseBeep = true;
+  bool _rangeUseVoice = true;
 
   Future<void> _initPlayer() async {
     await _tonePlayer.setReleaseMode(ReleaseMode.stop);
     await _tonePlayer.setVolume(1.0);
   }
 
-  bool get soundEnabled => _soundEnabled;
-  set soundEnabled(bool v) => _soundEnabled = v;
-
-  bool get ttsEnabled => _ttsEnabled;
-  set ttsEnabled(bool v) => _ttsEnabled = v;
-
   Future<void> setTtsLanguage(String language) async {
-    _ttsLanguage = (language == AppStrings.ru) ? AppStrings.ru : AppStrings.en;
+    final normalized =
+        (language == AppStrings.ru) ? AppStrings.ru : AppStrings.en;
+    if (normalized == _ttsLanguage && _ttsReady) return;
+    _ttsLanguage = normalized;
     await _initTts();
   }
 
@@ -53,7 +49,11 @@ class NotificationAudioService {
       var configured = false;
       for (final language in preferred) {
         final isAvailable = await _tts.isLanguageAvailable(language);
-        if (isAvailable == true) {
+        // Android returns int (>=0 = available), iOS returns bool true.
+        final available = isAvailable is bool
+            ? isAvailable
+            : (isAvailable is int && isAvailable >= 0);
+        if (available) {
           await _tts.setLanguage(language);
           configured = true;
           break;
@@ -76,9 +76,12 @@ class NotificationAudioService {
     required bool inCustomEmergency,
     required bool aboveTarget,
     required bool belowTarget,
+    required bool useBeep,
+    required bool useVoice,
   }) async {
     if (_disposed) return;
-    final now = DateTime.now();
+    _rangeUseBeep = useBeep;
+    _rangeUseVoice = useVoice;
     final nextState = inCustomEmergency
         ? AlertState.customEmergency
         : inDanger
@@ -90,23 +93,15 @@ class NotificationAudioService {
                     : AlertState.none;
 
     if (nextState == AlertState.none) {
-      _backInZoneSince ??= now;
       _stopAlertTimer();
-      if (_backInZoneSince != null &&
-          now.difference(_backInZoneSince!) >= const Duration(seconds: 10)) {
-        _resetEscalation();
-      }
+      _resetEscalation();
       _alertState = AlertState.none;
       return;
     }
 
-    _backInZoneSince = null;
     if (_alertState != nextState) {
-      if (_alertState != AlertState.none) {
-        _resetEscalation();
-      }
+      _resetEscalation();
       _alertState = nextState;
-      _outOfZoneSince ??= now;
       _scheduleImmediateTick();
       return;
     }
@@ -118,16 +113,25 @@ class NotificationAudioService {
 
   Future<void> _emitAlert() async {
     if (_alertState == AlertState.none || _disposed) return;
-    await _playTone(_alertState);
-    await _maybeSpeak();
-    if (_alertState != AlertState.danger &&
-        _alertState != AlertState.customEmergency) {
-      _outOfZoneSignals += 1;
+    // Beeper goes first so its gainTransient focus is fully released
+    // before TTS tries to acquire audio focus. Without this order,
+    // the residual focus from a previous tick can silently block TTS.
+    if (_rangeUseBeep) {
+      await _playTone(_alertState, ignoreMasterSwitch: true);
+      // Reset audio context so the player no longer holds audio focus,
+      // giving TTS a clean opportunity to speak.
+      await _tonePlayer.setAudioContext(AudioContext());
+    }
+    if (_rangeUseVoice) {
+      await _maybeSpeak(ignoreMasterSwitch: true);
     }
   }
 
-  Future<void> _playTone(AlertState state) async {
-    if (!_soundEnabled) return;
+  Future<void> _playTone(
+    AlertState state, {
+    bool ignoreMasterSwitch = false,
+  }) async {
+    if (!soundEnabled && !ignoreMasterSwitch) return;
     await _tonePlayer.setAudioContext(_audioContextForState(state));
     switch (state) {
       case AlertState.reducePace:
@@ -162,15 +166,15 @@ class NotificationAudioService {
     }
   }
 
-  Future<void> _maybeSpeak() async {
-    if (!_ttsEnabled || !_ttsReady || _alertState == AlertState.none) {
+  Future<void> _maybeSpeak({bool ignoreMasterSwitch = false}) async {
+    if ((!ttsEnabled && !ignoreMasterSwitch) ||
+        !_ttsReady ||
+        _alertState == AlertState.none) {
       return;
     }
     final now = DateTime.now();
-    final requiredGap = (_alertState == AlertState.danger ||
-            _alertState == AlertState.customEmergency)
-        ? const Duration(seconds: 15)
-        : const Duration(seconds: 25);
+    // Единый кулдаун для всех голосовых сообщений
+    const requiredGap = Duration(seconds: 5);
     if (_lastTtsAt != null && now.difference(_lastTtsAt!) < requiredGap) {
       return;
     }
@@ -203,23 +207,29 @@ class NotificationAudioService {
   }
 
   AudioContext _audioContextForState(AlertState state) {
-    final emergency =
-        state == AlertState.danger || state == AlertState.customEmergency;
+    final emergencyStop = state == AlertState.danger ||
+        state == AlertState.customEmergency ||
+        state == AlertState.reducePace;
+    final startDuck = state == AlertState.increasePace;
     return AudioContext(
       android: AudioContextAndroid(
         contentType: AndroidContentType.sonification,
-        usageType: emergency
+        usageType: emergencyStop
             ? AndroidUsageType.alarm
             : AndroidUsageType.assistanceSonification,
-        audioFocus: emergency
-            ? AndroidAudioFocus.gainTransientMayDuck
-            : AndroidAudioFocus.none,
+        audioFocus: emergencyStop
+            ? AndroidAudioFocus.gainTransient
+            : startDuck
+                ? AndroidAudioFocus.gainTransientMayDuck
+                : AndroidAudioFocus.none,
       ),
       iOS: AudioContextIOS(
         category: AVAudioSessionCategory.playback,
-        options: emergency
+        options: emergencyStop
             ? {AVAudioSessionOptions.duckOthers}
-            : {AVAudioSessionOptions.mixWithOthers},
+            : startDuck
+                ? {AVAudioSessionOptions.duckOthers}
+                : {AVAudioSessionOptions.mixWithOthers},
       ),
     );
   }
@@ -307,22 +317,22 @@ class NotificationAudioService {
   }
 
   Duration _nextInterval() {
-    if (_alertState == AlertState.danger ||
-        _alertState == AlertState.customEmergency) {
-      return const Duration(seconds: 1);
+    switch (_alertState) {
+      case AlertState.increasePace:
+        // Мягкий сигнал для начала упражнения: раз в 3 секунды
+        return const Duration(seconds: 3);
+      case AlertState.reducePace:
+        // Жёсткий сигнал для остановки: каждую секунду
+        return const Duration(seconds: 1);
+      case AlertState.danger:
+      case AlertState.customEmergency:
+        return const Duration(seconds: 1);
+      case AlertState.none:
+        return const Duration(seconds: 1);
     }
-    if (_outOfZoneSignals < 2) {
-      return const Duration(seconds: 10);
-    }
-    if (_outOfZoneSignals < 6) {
-      return const Duration(seconds: 5);
-    }
-    return const Duration(seconds: 2);
   }
 
   void _resetEscalation() {
-    _outOfZoneSince = null;
-    _outOfZoneSignals = 0;
     _lastTtsAt = null;
   }
 
@@ -344,7 +354,7 @@ class NotificationAudioService {
     required bool useVoice,
   }) async {
     if (_disposed) return;
-    if (_soundEnabled) {
+    if (soundEnabled) {
       await _tonePlayer
           .setAudioContext(_audioContextForState(AlertState.increasePace));
       await _playPattern(const [
@@ -353,7 +363,7 @@ class NotificationAudioService {
         _ToneStep(860, 120),
       ]);
     }
-    if (useVoice && _ttsEnabled && _ttsReady) {
+    if (useVoice && ttsEnabled && _ttsReady) {
       final isRu = _ttsLanguage == AppStrings.ru;
       await _tts.stop();
       await _tts.speak(isRu
@@ -367,7 +377,7 @@ class NotificationAudioService {
     bool forceSound = true,
   }) async {
     if (_disposed) return;
-    if (_soundEnabled || forceSound) {
+    if (soundEnabled || forceSound) {
       await _tonePlayer
           .setAudioContext(_audioContextForState(AlertState.danger));
       await _tonePlayer.setVolume(1.0);
@@ -378,7 +388,7 @@ class NotificationAudioService {
         _ToneStep(980, 240),
       ]);
     }
-    if (useVoice && _ttsEnabled && _ttsReady) {
+    if (useVoice && ttsEnabled && _ttsReady) {
       final isRu = _ttsLanguage == AppStrings.ru;
       await _tts.stop();
       await _tts.speak(isRu ? 'Таймер завершён.' : 'Timer finished.');
