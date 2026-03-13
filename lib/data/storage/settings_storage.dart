@@ -13,7 +13,6 @@ const _keyTtsEnabled = 'tts_enabled';
 const _keyFirstRun = 'first_run';
 const _keyChartWindowMinutes = 'chart_window_minutes';
 const _keyKeepScreenOn = 'keep_screen_on';
-const _keySensorPollIntervalMs = 'sensor_poll_interval_ms';
 const _keyUiLanguage = 'ui_language';
 const _keyTtsLanguage = 'tts_language';
 const _keyEnableCustomEmergencyAlert = 'enable_custom_emergency_alert';
@@ -102,14 +101,7 @@ class SettingsStorage {
   }
 
   int get sensorPollIntervalMs =>
-      _prefs.getInt(_keySensorPollIntervalMs) ??
-      AppConstants.defaultSensorPollIntervalMs;
-
-  set sensorPollIntervalMs(int value) {
-    if (AppConstants.sensorPollIntervalOptionsMs.contains(value)) {
-      _prefs.setInt(_keySensorPollIntervalMs, value);
-    }
-  }
+      AppConstants.mockIntervalMsForChartWindow(chartWindowMinutes);
 
   String get uiLanguage => _prefs.getString(_keyUiLanguage) ?? 'en';
 

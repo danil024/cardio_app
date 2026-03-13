@@ -41,8 +41,13 @@ class AppConstants {
   // Окно графика (минуты)
   static const List<int> chartWindowOptions = [5, 10, 20];
   static const int defaultChartWindowMinutes = 5;
-  static const List<int> sensorPollIntervalOptionsMs = [500, 1000, 5000, 20000];
-  static const int defaultSensorPollIntervalMs = 1000;
+  /// Mock poll interval is auto-derived from chart window.
+  /// Real BLE sensors push data via notify — no polling involved.
+  static int mockIntervalMsForChartWindow(int chartMinutes) {
+    if (chartMinutes <= 5) return 500;
+    if (chartMinutes <= 10) return 1000;
+    return 2000;
+  }
 
   // Папка для сессий
   static const String sessionsFolder = 'CardioSessions';

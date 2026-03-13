@@ -46,7 +46,6 @@ class _SettingsContentState extends State<_SettingsContent> {
   late double _targetZoneMaxPercent;
   late bool _keepScreenOn;
   late int _chartWindowMinutes;
-  late int _sensorPollIntervalMs;
   late String _uiLanguage;
   late String _hrRangeMode;
   late bool _enableRangeBeep;
@@ -67,7 +66,6 @@ class _SettingsContentState extends State<_SettingsContent> {
     _targetZoneMaxPercent = widget.settings.targetZoneMaxPercent;
     _keepScreenOn = widget.settings.keepScreenOn;
     _chartWindowMinutes = widget.settings.chartWindowMinutes;
-    _sensorPollIntervalMs = widget.settings.sensorPollIntervalMs;
     _uiLanguage = widget.settings.uiLanguage;
     _hrRangeMode = widget.settings.hrRangeMode;
     _enableRangeBeep = widget.settings.enableRangeBeep;
@@ -108,7 +106,6 @@ class _SettingsContentState extends State<_SettingsContent> {
     widget.settings.targetZoneMaxPercent = _targetZoneMaxPercent;
     widget.settings.keepScreenOn = _keepScreenOn;
     widget.settings.chartWindowMinutes = _chartWindowMinutes;
-    widget.settings.sensorPollIntervalMs = _sensorPollIntervalMs;
     widget.settings.uiLanguage = _uiLanguage;
     // UI language and voice language are linked by one selector.
     widget.settings.ttsLanguage = _uiLanguage;
@@ -348,17 +345,10 @@ class _SettingsContentState extends State<_SettingsContent> {
           ),
           const SizedBox(height: 24),
           Text(
-            AppStrings.isRu(languageCode)
-                ? 'График и датчик'
-                : 'Chart & sensor',
+            AppStrings.chartWindow(languageCode),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
-          Text(
-            AppStrings.chartWindow(languageCode),
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 4),
           SegmentedButton<int>(
             segments: AppConstants.chartWindowOptions
                 .map((m) => ButtonSegment<int>(
@@ -370,26 +360,6 @@ class _SettingsContentState extends State<_SettingsContent> {
             selected: {_chartWindowMinutes},
             onSelectionChanged: (s) => setState(() {
               _chartWindowMinutes = s.first;
-              _persistSettings();
-            }),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            AppStrings.sensorPollRate(languageCode),
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 4),
-          SegmentedButton<int>(
-            segments: AppConstants.sensorPollIntervalOptionsMs
-                .map((ms) => ButtonSegment<int>(
-                      value: ms,
-                      label: Text(
-                          '$ms${AppStrings.isRu(languageCode) ? 'мс' : 'ms'}'),
-                    ))
-                .toList(),
-            selected: {_sensorPollIntervalMs},
-            onSelectionChanged: (s) => setState(() {
-              _sensorPollIntervalMs = s.first;
               _persistSettings();
             }),
           ),
