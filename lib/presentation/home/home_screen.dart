@@ -94,8 +94,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: HrChart(
                             readings: state.readings,
                             chartWindowMinutes: state.chartWindowMinutes,
-                            showTimerMarker: state.isTimerRunning,
-                            timerMarkerTimestamp: state.timerStartedAt,
+                            showTimerMarker: state.isTimerRunning &&
+                                state.timerMode == WorkoutTimerMode.timer,
+                            timerMarkerTimestamp: state.timerEndsAt,
                           ),
                         ),
                         Positioned.fill(

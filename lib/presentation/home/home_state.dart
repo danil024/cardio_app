@@ -5,6 +5,8 @@ enum HomeStatus { initial, connected, recording }
 enum WorkoutTimerMode { timer, stopwatch }
 
 class HomeState extends Equatable {
+  static const Object _unset = Object();
+
   const HomeState({
     this.bleStatus = BleConnectionStatus.disconnected,
     this.currentHeartRate,
@@ -23,6 +25,7 @@ class HomeState extends Equatable {
     this.timerElapsedSeconds = 0,
     this.isTimerRunning = false,
     this.timerStartedAt,
+    this.timerEndsAt,
   });
 
   final BleConnectionStatus bleStatus;
@@ -42,6 +45,7 @@ class HomeState extends Equatable {
   final int timerElapsedSeconds;
   final bool isTimerRunning;
   final DateTime? timerStartedAt;
+  final DateTime? timerEndsAt;
 
   static const HomeState initial = HomeState();
 
@@ -62,7 +66,8 @@ class HomeState extends Equatable {
     int? timerRemainingSeconds,
     int? timerElapsedSeconds,
     bool? isTimerRunning,
-    DateTime? timerStartedAt,
+    Object? timerStartedAt = _unset,
+    Object? timerEndsAt = _unset,
   }) {
     return HomeState(
       bleStatus: bleStatus ?? this.bleStatus,
@@ -83,7 +88,12 @@ class HomeState extends Equatable {
           timerRemainingSeconds ?? this.timerRemainingSeconds,
       timerElapsedSeconds: timerElapsedSeconds ?? this.timerElapsedSeconds,
       isTimerRunning: isTimerRunning ?? this.isTimerRunning,
-      timerStartedAt: timerStartedAt ?? this.timerStartedAt,
+      timerStartedAt: identical(timerStartedAt, _unset)
+          ? this.timerStartedAt
+          : timerStartedAt as DateTime?,
+      timerEndsAt: identical(timerEndsAt, _unset)
+          ? this.timerEndsAt
+          : timerEndsAt as DateTime?,
     );
   }
 
@@ -106,5 +116,6 @@ class HomeState extends Equatable {
         timerElapsedSeconds,
         isTimerRunning,
         timerStartedAt,
+        timerEndsAt,
       ];
 }

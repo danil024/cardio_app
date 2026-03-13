@@ -171,15 +171,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
 
     // Ограничиваем readings для графика (последние N минут)
-    final chartMinutes = _settingsStorage.chartWindowMinutes;
+    // Use the in-state value so chart axis and trimmed points
+    // always use exactly the same window.
+    final chartMinutes = state.chartWindowMinutes;
     final cutoff = DateTime.now().subtract(
       Duration(minutes: chartMinutes),
     );
     final chartReadings =
         newReadings.where((r) => r.timestamp.isAfter(cutoff)).toList();
-    final pollMs = _settingsStorage.sensorPollIntervalMs;
-    final expectedPoints = ((chartMinutes * 60 * 1000) / pollMs).ceil() + 20;
-    final maxPoints = expectedPoints.clamp(120, 4000);
+    // Keep points by time window first. Do not depend on user-selected poll
+    // interval here because real BLE sensors may emit at a different rate.
+    // A hard cap only protects memory in pathological cases.
+    const maxPoints = 5000;
     final lightweightChartReadings = chartReadings.length <= maxPoints
         ? chartReadings
         : chartReadings.sublist(chartReadings.length - maxPoints);
@@ -308,6 +311,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       timerRemainingSeconds:
           event.mode == WorkoutTimerMode.timer ? state.timerDurationSeconds : 0,
       timerStartedAt: null,
+      timerEndsAt: null,
     ));
   }
 
@@ -324,6 +328,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       timerElapsedSeconds: 0,
       isTimerRunning: false,
       timerStartedAt: null,
+      timerEndsAt: null,
     ));
   }
 
@@ -340,6 +345,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       timerElapsedSeconds: 0,
       isTimerRunning: false,
       timerStartedAt: null,
+      timerEndsAt: null,
     ));
   }
 
@@ -354,13 +360,19 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         timerElapsedSeconds: 0,
         timerRemainingSeconds: state.timerDurationSeconds,
         timerStartedAt: null,
+        timerEndsAt: null,
       ));
       return;
     }
+    final startedAt = DateTime.now();
+    final timerEndsAt = state.timerMode == WorkoutTimerMode.timer
+        ? startedAt.add(Duration(seconds: state.timerRemainingSeconds))
+        : null;
     _startTimerTicker();
     emit(state.copyWith(
       isTimerRunning: true,
-      timerStartedAt: state.timerStartedAt ?? DateTime.now(),
+      timerStartedAt: startedAt,
+      timerEndsAt: timerEndsAt,
     ));
   }
 
@@ -374,6 +386,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       timerElapsedSeconds: 0,
       timerRemainingSeconds: state.timerDurationSeconds,
       timerStartedAt: null,
+      timerEndsAt: null,
     ));
   }
 
@@ -388,7 +401,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
     if (state.timerRemainingSeconds <= 0) {
       _stopTimerTicker();
-      emit(state.copyWith(isTimerRunning: false));
+      emit(state.copyWith(
+        isTimerRunning: false,
+        timerStartedAt: null,
+        timerEndsAt: null,
+      ));
       return;
     }
     final nextRemaining = state.timerRemainingSeconds - 1;
@@ -399,6 +416,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         timerElapsedSeconds: 0,
         isTimerRunning: false,
         timerStartedAt: null,
+        timerEndsAt: null,
       ));
       await _audioService.notifyTimerFinished(useVoice: true);
       return;

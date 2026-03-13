@@ -24,7 +24,8 @@ class HrChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final languageCode = context.read<SettingsStorage>().uiLanguage;
-    final now = DateTime.now();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.fromMillisecondsSinceEpoch((nowMs ~/ 1000) * 1000);
     final cutoff = now.subtract(
       Duration(minutes: chartWindowMinutes),
     );
@@ -56,27 +57,54 @@ class HrChart extends StatelessWidget {
     chartMin = chartMin.clamp(40.0, 220.0);
     chartMax = chartMax.clamp(60.0, 240.0);
 
-    final sampled = filtered.length <= 120
-        ? filtered
-        : [
-            for (int i = 0;
-                i < filtered.length;
-                i += (filtered.length / 120).ceil())
-              filtered[i],
-          ];
-
     final maxX = Duration(minutes: chartWindowMinutes).inSeconds.toDouble();
-    final spots = sampled.map((reading) {
-      final seconds =
-          reading.timestamp.difference(cutoff).inMilliseconds / 1000;
-      return FlSpot(
-          seconds.clamp(0, maxX).toDouble(), reading.heartRate.toDouble());
-    }).toList();
-    final timeIntervalSec = chartWindowMinutes <= 5
+    // Stable aggregation by fixed time buckets prevents old peaks from
+    // "changing" when new points arrive.
+    final bucketSizeSec = chartWindowMinutes <= 5
+        ? 1
+        : chartWindowMinutes <= 10
+            ? 2
+            : 4;
+    final cutoffEpochSec = cutoff.millisecondsSinceEpoch ~/ 1000;
+    final maxByBucket = <int, int>{};
+    for (final reading in filtered) {
+      final tsSec = reading.timestamp.millisecondsSinceEpoch ~/ 1000;
+      final bucketStartSec = tsSec - (tsSec % bucketSizeSec);
+      final currentMax = maxByBucket[bucketStartSec];
+      if (currentMax == null || reading.heartRate > currentMax) {
+        maxByBucket[bucketStartSec] = reading.heartRate;
+      }
+    }
+    final bucketStarts = maxByBucket.keys.toList()..sort();
+    final spots = <FlSpot>[
+      for (final bucketStartSec in bucketStarts)
+        if ((bucketStartSec - cutoffEpochSec) >= 0 &&
+            (bucketStartSec - cutoffEpochSec) <= maxX)
+          FlSpot(
+            (bucketStartSec - cutoffEpochSec).toDouble(),
+            maxByBucket[bucketStartSec]!.toDouble(),
+          ),
+    ];
+    if (spots.length < 2) {
+      return Center(
+        child: Text(
+          AppStrings.isRu(languageCode)
+              ? 'Ожидание данных...'
+              : 'Waiting for data...',
+          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+        ),
+      );
+    }
+    final gridIntervalSec = chartWindowMinutes <= 5
         ? 30.0
         : chartWindowMinutes <= 10
             ? 60.0
             : 120.0;
+    final xLabelIntervalSec = chartWindowMinutes <= 5
+        ? 60.0
+        : chartWindowMinutes <= 10
+            ? 120.0
+            : 300.0;
     final markerX = timerMarkerTimestamp == null
         ? null
         : (timerMarkerTimestamp!.difference(cutoff).inMilliseconds / 1000)
@@ -90,13 +118,13 @@ class HrChart extends StatelessWidget {
           drawVerticalLine: true,
           drawHorizontalLine: true,
           horizontalInterval: 10,
-          verticalInterval: timeIntervalSec,
+          verticalInterval: gridIntervalSec,
           getDrawingHorizontalLine: (_) => FlLine(
             color: Colors.white.withValues(alpha: 0.10),
             strokeWidth: 1,
           ),
           getDrawingVerticalLine: (_) => FlLine(
-            color: Colors.white.withValues(alpha: 0.08),
+            color: Colors.white.withValues(alpha: 0.06),
             strokeWidth: 1,
           ),
         ),
@@ -125,13 +153,27 @@ class HrChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 28,
-              interval: timeIntervalSec,
+              interval: xLabelIntervalSec,
               getTitlesWidget: (value, meta) {
+                if (value < 0 || value > maxX) {
+                  return const SizedBox.shrink();
+                }
+                if (value <= 1) {
+                  return Text(
+                    '-$chartWindowMinutes:00',
+                    style: const TextStyle(fontSize: 10, color: Colors.white70),
+                  );
+                }
                 if ((value - maxX).abs() < 1) {
                   return const Text(
                     'now',
                     style: TextStyle(fontSize: 10, color: Colors.white70),
                   );
+                }
+                final nearestTick =
+                    (value / xLabelIntervalSec).round() * xLabelIntervalSec;
+                if ((value - nearestTick).abs() > 0.6) {
+                  return const SizedBox.shrink();
                 }
                 final secondsAgo = (maxX - value).round();
                 final m = (secondsAgo ~/ 60).abs();
@@ -174,9 +216,9 @@ class HrChart extends StatelessWidget {
               ? [
                   VerticalLine(
                     x: markerX,
-                    color: Colors.white.withValues(alpha: 0.30),
-                    strokeWidth: 2,
-                    dashArray: const [6, 6],
+                    color: Colors.white.withValues(alpha: 0.44),
+                    strokeWidth: 2.3,
+                    dashArray: const [7, 5],
                   ),
                 ]
               : const [],
