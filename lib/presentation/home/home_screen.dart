@@ -25,15 +25,18 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver {
   static const double _moduleHeight = 80;
   static const double _moduleGap = 8;
   Timer? _clockTicker;
   DateTime _now = DateTime.now();
+  bool _pauseCheckpointRequested = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<HomeBloc>().add(const HomeCheckStorageRequested());
     });
@@ -49,7 +52,30 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _clockTicker?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _pauseCheckpointRequested = false;
+      return;
+    }
+
+    final isBackgroundState = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached;
+
+    if (!isBackgroundState || _pauseCheckpointRequested) {
+      return;
+    }
+
+    _pauseCheckpointRequested = true;
+    if (!context.mounted) return;
+    context
+        .read<HomeBloc>()
+        .add(const HomeAppPausedCheckpointRequested());
   }
 
   @override

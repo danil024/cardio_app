@@ -127,3 +127,7 @@ class HomeForceCloseHandled extends HomeEvent {
 class HomeDataWatchdogTicked extends HomeEvent {
   const HomeDataWatchdogTicked();
 }
+
+class HomeAppPausedCheckpointRequested extends HomeEvent {
+  const HomeAppPausedCheckpointRequested();
+}

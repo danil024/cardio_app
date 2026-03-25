@@ -61,6 +61,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeReconnectGiveUpReached>(_onReconnectGiveUpReached);
     on<HomeForceCloseHandled>(_onForceCloseHandled);
     on<HomeDataWatchdogTicked>(_onDataWatchdogTicked);
+    on<HomeAppPausedCheckpointRequested>(_onAppPausedCheckpointRequested);
 
     _bleStatusSub = _bleService.statusStream.listen((s) {
       add(HomeBleStatusChanged(s));
@@ -327,7 +328,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       endedAt: DateTime.now(),
       readings: List<HrReading>.from(_sessionReadings),
     );
-    await _sessionStorage.saveSession(snapshot);
+    try {
+      await _sessionStorage.saveSession(snapshot);
+    } catch (e) {
+      emit(state.copyWith(
+        errorMessage: 'Failed to save session: $e',
+      ));
+      return;
+    }
 
     final nextSession = HrSession(
       id: const Uuid().v4(),
@@ -555,20 +563,35 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         _manualDisconnectRequested) {
       return;
     }
-    _reconnectSaveDone = true;
-    await _persistCurrentSession(emit, suggestCleanup: false);
+    final success = await _persistCurrentSession(emit, suggestCleanup: false);
+    if (success) {
+      _reconnectSaveDone = true;
+    }
   }
 
-  void _onReconnectGiveUpReached(
+  Future<void> _onReconnectGiveUpReached(
     HomeReconnectGiveUpReached event,
     Emitter<HomeState> emit,
-  ) {
+  ) async {
     if (!_reconnectFlowActive ||
         state.bleStatus == BleConnectionStatus.connected ||
         _manualDisconnectRequested) {
       return;
     }
     _cancelReconnectFlow();
+
+    // Последняя попытка сохранения перед принудительным завершением.
+    // Если сохранение не удалось, не закрываем процесс, чтобы данные остались в RAM.
+    final success = await _persistCurrentSession(emit, suggestCleanup: false);
+    if (!success && _sessionReadings.isNotEmpty) {
+      emit(state.copyWith(
+        shouldForceCloseApp: false,
+        bleStatus: BleConnectionStatus.error,
+        isTestMode: false,
+      ));
+      return;
+    }
+
     emit(state.copyWith(
       shouldForceCloseApp: true,
       errorMessage:
@@ -586,6 +609,19 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       return;
     }
     emit(state.copyWith(shouldForceCloseApp: false));
+  }
+
+  Future<void> _onAppPausedCheckpointRequested(
+    HomeAppPausedCheckpointRequested event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (!state.isRecording) {
+      return;
+    }
+    if (_reconnectFlowActive) {
+      _cancelReconnectFlow();
+    }
+    await _persistCurrentSession(emit, suggestCleanup: false);
   }
 
   Future<void> _onDataWatchdogTicked(
@@ -654,21 +690,36 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _reconnectGiveUpTimer = null;
   }
 
-  Future<void> _persistCurrentSession(
+  Future<bool> _persistCurrentSession(
     Emitter<HomeState> emit, {
     required bool suggestCleanup,
   }) async {
-    final currentSession = state.session?.copyWith(endedAt: DateTime.now());
-    if (currentSession == null || currentSession.readings.isEmpty) {
+    final sessionBase = state.session;
+    if (sessionBase == null || _sessionReadings.isEmpty) {
       emit(state.copyWith(
         isRecording: false,
         session: null,
+        shouldShowCleanupDialog: false,
+        errorMessage: null,
       ));
       _sessionReadings.clear();
-      return;
+      return false;
     }
 
-    await _sessionStorage.saveSession(currentSession);
+    final currentSession = sessionBase.copyWith(
+      endedAt: DateTime.now(),
+      readings: List<HrReading>.from(_sessionReadings),
+    );
+
+    try {
+      await _sessionStorage.saveSession(currentSession);
+    } catch (e) {
+      emit(state.copyWith(
+        errorMessage: 'Failed to save session: $e',
+      ));
+      return false;
+    }
+
     final shouldSuggestCleanup = suggestCleanup
         ? await _sessionStorage.shouldSuggestCleanup()
         : false;
@@ -676,8 +727,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       isRecording: false,
       session: null,
       shouldShowCleanupDialog: shouldSuggestCleanup,
+      errorMessage: null,
     ));
     _sessionReadings.clear();
+    return true;
   }
 
   void _startTimerTicker() {
