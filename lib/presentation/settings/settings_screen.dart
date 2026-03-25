@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/app_strings.dart';
 import '../../core/constants.dart';
@@ -48,12 +49,15 @@ class _SettingsContentState extends State<_SettingsContent> {
   late int _chartWindowMinutes;
   late String _uiLanguage;
   late String _hrRangeMode;
-  late bool _enableRangeBeep;
-  late bool _enableRangeVoice;
+  late bool _zoneRangeBeepEnabled;
+  late bool _zoneRangeVoiceEnabled;
+  late bool _manualRangeBeepEnabled;
+  late bool _manualRangeVoiceEnabled;
   late int _rangeAlertMinBpm;
   late int _rangeAlertMaxBpm;
   late bool _enableTimerStopwatch;
   late bool _enableMusicControls;
+  String? _sessionsCustomDirPath;
   late FixedExtentScrollController _agePickerController;
   late List<({HrZoneType type, double min, double max})> _presets;
   late HrZones _zones;
@@ -68,12 +72,15 @@ class _SettingsContentState extends State<_SettingsContent> {
     _chartWindowMinutes = widget.settings.chartWindowMinutes;
     _uiLanguage = widget.settings.uiLanguage;
     _hrRangeMode = widget.settings.hrRangeMode;
-    _enableRangeBeep = widget.settings.enableRangeBeep;
-    _enableRangeVoice = widget.settings.enableRangeVoice;
+    _zoneRangeBeepEnabled = widget.settings.zoneRangeBeepEnabled;
+    _zoneRangeVoiceEnabled = widget.settings.zoneRangeVoiceEnabled;
+    _manualRangeBeepEnabled = widget.settings.manualRangeBeepEnabled;
+    _manualRangeVoiceEnabled = widget.settings.manualRangeVoiceEnabled;
     _rangeAlertMinBpm = widget.settings.rangeAlertMinBpm;
     _rangeAlertMaxBpm = widget.settings.rangeAlertMaxBpm;
     _enableTimerStopwatch = widget.settings.enableTimerStopwatch;
     _enableMusicControls = widget.settings.enableMusicControls;
+    _sessionsCustomDirPath = widget.settings.sessionsCustomDirPath;
     _agePickerController =
         FixedExtentScrollController(initialItem: _age - AppConstants.minAge);
     _presets = <({HrZoneType type, double min, double max})>[
@@ -110,14 +117,52 @@ class _SettingsContentState extends State<_SettingsContent> {
     // UI language and voice language are linked by one selector.
     widget.settings.ttsLanguage = _uiLanguage;
     widget.settings.hrRangeMode = _hrRangeMode;
-    widget.settings.enableRangeBeep = _enableRangeBeep;
-    widget.settings.enableRangeVoice = _enableRangeVoice;
+    widget.settings.zoneRangeBeepEnabled = _zoneRangeBeepEnabled;
+    widget.settings.zoneRangeVoiceEnabled = _zoneRangeVoiceEnabled;
+    widget.settings.manualRangeBeepEnabled = _manualRangeBeepEnabled;
+    widget.settings.manualRangeVoiceEnabled = _manualRangeVoiceEnabled;
     widget.settings.enableRangeAlert = _hrRangeMode == 'manual';
     widget.settings.rangeAlertMinBpm = _rangeAlertMinBpm;
     widget.settings.rangeAlertMaxBpm = _rangeAlertMaxBpm;
     widget.settings.enableTimerStopwatch = _enableTimerStopwatch;
     widget.settings.enableMusicControls = _enableMusicControls;
+    widget.settings.sessionsCustomDirPath = _sessionsCustomDirPath;
     context.read<HomeBloc>().add(const HomeRefreshSettings());
+  }
+
+  Future<void> _pickSessionsFolder() async {
+    final languageCode = _uiLanguage;
+    try {
+      final selected = await FilePicker.platform.getDirectoryPath();
+      if (selected == null || selected.trim().isEmpty) {
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _sessionsCustomDirPath = selected;
+        _persistSettings();
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.storagePathUpdated(languageCode))),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.storagePathUpdateFailed(languageCode))),
+      );
+    }
+  }
+
+  void _resetSessionsFolder() {
+    final languageCode = _uiLanguage;
+    setState(() {
+      _sessionsCustomDirPath = null;
+      _persistSettings();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(AppStrings.defaultStoragePathUsed(languageCode))),
+    );
   }
 
   void _completeAndClose() {
@@ -195,6 +240,11 @@ class _SettingsContentState extends State<_SettingsContent> {
             selected: {_hrRangeMode},
             onSelectionChanged: (s) => setState(() {
               _hrRangeMode = s.first;
+              if (_hrRangeMode == 'zone') {
+                // In target zone mode, beep and voice are always active.
+                _zoneRangeBeepEnabled = true;
+                _zoneRangeVoiceEnabled = true;
+              }
               _persistSettings();
             }),
           ),
@@ -287,23 +337,30 @@ class _SettingsContentState extends State<_SettingsContent> {
                 _persistSettings();
               }),
             ),
+            SwitchListTile(
+              title: Text(AppStrings.manualRangeBeepToggle(languageCode)),
+              value: _manualRangeBeepEnabled,
+              onChanged: (v) => setState(() {
+                _manualRangeBeepEnabled = v;
+                _persistSettings();
+              }),
+            ),
+            SwitchListTile(
+              title: Text(AppStrings.manualRangeVoiceToggle(languageCode)),
+              value: _manualRangeVoiceEnabled,
+              onChanged: (v) => setState(() {
+                _manualRangeVoiceEnabled = v;
+                _persistSettings();
+              }),
+            ),
           ],
-          SwitchListTile(
-            title: Text(AppStrings.rangeBeepToggle(languageCode)),
-            value: _enableRangeBeep,
-            onChanged: (v) => setState(() {
-              _enableRangeBeep = v;
-              _persistSettings();
-            }),
-          ),
-          SwitchListTile(
-            title: Text(AppStrings.rangeVoiceToggle(languageCode)),
-            value: _enableRangeVoice,
-            onChanged: (v) => setState(() {
-              _enableRangeVoice = v;
-              _persistSettings();
-            }),
-          ),
+          if (_hrRangeMode == 'zone') ...[
+            ListTile(
+              leading: const Icon(Icons.volume_up_outlined),
+              title: Text(AppStrings.zoneModeAudioInfoTitle(languageCode)),
+              subtitle: Text(AppStrings.zoneModeAudioInfoSubtitle(languageCode)),
+            ),
+          ],
           const SizedBox(height: 24),
           Text(
             AppStrings.isRu(languageCode)
@@ -342,6 +399,42 @@ class _SettingsContentState extends State<_SettingsContent> {
               _enableMusicControls = v;
               _persistSettings();
             }),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            AppStrings.storagePathTitle(languageCode),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _sessionsCustomDirPath == null
+                ? AppStrings.defaultStoragePathUsed(languageCode)
+                : AppStrings.currentStoragePath(
+                    languageCode,
+                    _sessionsCustomDirPath!,
+                  ),
+            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickSessionsFolder,
+                  icon: const Icon(Icons.folder_open),
+                  label: Text(AppStrings.chooseStoragePath(languageCode)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed:
+                      _sessionsCustomDirPath == null ? null : _resetSessionsFolder,
+                  icon: const Icon(Icons.restart_alt),
+                  label: Text(AppStrings.resetStoragePath(languageCode)),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
           Text(

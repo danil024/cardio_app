@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -82,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
           if (!didPop) {
-            SystemNavigator.pop();
+            unawaited(context.read<AppControlService>().minimizeApp());
           }
         },
         child: Scaffold(
@@ -162,7 +161,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPulseBlock(HomeState state) {
     final hr = state.currentHeartRate;
     final zones = state.zones;
-    final style = _pulseStyle(hr, zones);
+    final settings = context.read<SettingsStorage>();
+    final style = _pulseStyle(hr, zones, settings);
     return HrDisplay(
       heartRate: hr,
       color: style.color,
@@ -175,7 +175,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final hr = state.currentHeartRate;
     final zones = state.zones;
     if (hr == null || zones == null) return const SizedBox.shrink();
-    final style = _pulseStyle(hr, zones);
+    final settings = context.read<SettingsStorage>();
+    final style = _pulseStyle(hr, zones, settings);
     return _buildUnifiedModuleCard(
       height: _moduleHeight,
       child: Center(
@@ -189,9 +190,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  _PulseStyle _pulseStyle(int? hr, HrZones? zones) {
+  _PulseStyle _pulseStyle(int? hr, HrZones? zones, SettingsStorage settings) {
     if (hr == null || zones == null) {
       return const _PulseStyle(color: Colors.white);
+    }
+    if (settings.hrRangeMode == 'manual') {
+      final minBpm = settings.rangeAlertMinBpm;
+      final maxBpm = settings.rangeAlertMaxBpm;
+      if (hr < minBpm) {
+        return const _PulseStyle(color: Colors.yellow);
+      }
+      if (hr > maxBpm) {
+        return const _PulseStyle(color: Colors.red);
+      }
+      return const _PulseStyle(color: Colors.green);
     }
     final below50 = hr < (zones.maxHr * 0.50).round();
     if (below50) {
@@ -252,52 +264,93 @@ class _HomeScreenState extends State<HomeScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          _buildCompactConnectControl(
+            context: context,
+            state: state,
+            languageCode: languageCode,
+          ),
+          const SizedBox(width: 8),
           Expanded(
-            child: _buildCompactConnectControl(
-              context: context,
-              state: state,
-              languageCode: languageCode,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: Text(
-              _formatClock(_now),
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.history),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HistoryScreen()),
+            child: Center(
+              child: Text(
+                _formatClock(_now),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.settings),
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => SettingsScreen(onComplete: () {}),
+            ),
+          ),
+          const SizedBox(width: 4),
+          _headerIconButton(
+            tooltip: AppStrings.saveHistory(languageCode),
+            icon: Icons.save_alt,
+            onPressed: () {
+              final hasData = state.isRecording &&
+                  state.currentHeartRate != null &&
+                  (state.session != null);
+              if (!hasData) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      AppStrings.historySaveUnavailable(languageCode),
                     ),
-                  );
-                  if (context.mounted) {
-                    context.read<HomeBloc>().add(const HomeRefreshSettings());
-                  }
-                },
-              ),
-            ],
+                  ),
+                );
+                return;
+              }
+              context.read<HomeBloc>().add(const HomeSaveHistoryRequested());
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(AppStrings.historySaved(languageCode)),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 2),
+          _headerIconButton(
+            tooltip: AppStrings.historyTitle(languageCode),
+            icon: Icons.history,
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HistoryScreen()),
+            ),
+          ),
+          const SizedBox(width: 2),
+          _headerIconButton(
+            tooltip: AppStrings.settingsTitle(languageCode),
+            icon: Icons.settings,
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SettingsScreen(onComplete: () {}),
+                ),
+              );
+              if (context.mounted) {
+                context.read<HomeBloc>().add(const HomeRefreshSettings());
+              }
+            },
           ),
         ],
       ),
+    );
+  }
+
+  Widget _headerIconButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, size: 20),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+      visualDensity: VisualDensity.compact,
+      splashRadius: 18,
+      onPressed: onPressed,
     );
   }
 
@@ -388,15 +441,23 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: OutlinedButton.icon(
+            child: OutlinedButton(
               style: _moduleButtonStyle(),
               onPressed: (state.isTimerRunning || !isTimerMode)
                   ? null
                   : () => _showDurationPickerSheet(context, state, languageCode),
-              icon: const Icon(Icons.schedule),
-              label: Text(
-                _formatDurationSeconds(shownSeconds),
-                style: const TextStyle(fontWeight: FontWeight.w700),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _formatDurationSeconds(shownSeconds),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 22,
+                    color: state.isTimerRunning
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.45),
+                  ),
+                ),
               ),
             ),
           ),
@@ -419,12 +480,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return _buildUnifiedModuleCard(
       height: _moduleHeight,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _mediaButton(Icons.skip_previous, () => media.previous()),
-          _mediaButton(Icons.play_arrow, () => media.play()),
-          _mediaButton(Icons.pause, () => media.pause()),
-          _mediaButton(Icons.skip_next, () => media.next()),
+          Expanded(child: _mediaButton(Icons.skip_previous, () => media.previous())),
+          const SizedBox(width: 8),
+          Expanded(child: _mediaButton(Icons.play_arrow, () => media.play())),
+          const SizedBox(width: 8),
+          Expanded(child: _mediaButton(Icons.pause, () => media.pause())),
+          const SizedBox(width: 8),
+          Expanded(child: _mediaButton(Icons.skip_next, () => media.next())),
         ],
       ),
     );
@@ -450,18 +513,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _mediaButton(IconData icon, VoidCallback onPressed) {
-    return SizedBox(
-      width: 52,
-      height: 44,
-      child: OutlinedButton(
-        style: _moduleButtonStyle(
-          dense: true,
-          minHeight: 44,
-          minWidth: 52,
-        ),
-        onPressed: onPressed,
-        child: Icon(icon),
+    return OutlinedButton(
+      style: _moduleButtonStyle(
+        minHeight: 44,
       ),
+      onPressed: onPressed,
+      child: Icon(icon),
     );
   }
 
@@ -645,9 +702,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 6),
             Text(
               isConnected
-                  ? AppStrings.disconnect(languageCode)
-                  : AppStrings.connect(languageCode),
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  ? AppStrings.disconnectCompact(languageCode)
+                  : AppStrings.connectCompact(languageCode),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
             ),
           ],
         ),

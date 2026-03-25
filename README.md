@@ -48,7 +48,7 @@
 
 ### Data & History
 - **Auto-save** sessions in CSV and JSON to `/storage/emulated/0/CardioAppLog`
-- **History screen** — view, export, and delete past sessions
+- **History screen** — view, export (CSV/JSON), copy to clipboard, and delete past sessions
 - **Storage cleanup** prompt when logs exceed 100 MB
 
 ### UX
@@ -199,13 +199,31 @@ All settings are saved automatically and persist across sessions:
 |---|---|---|
 | Age | 18–100 (roller picker) | 35 |
 | HR Control Mode | Target Zone / Manual Range | Target Zone |
-| Range Beeper | On / Off | On |
-| Range Voice | On / Off | On |
+| Target Zone Alerts | Beeper + Voice (always on) | On |
+| Manual Range Beeper | On / Off | On |
+| Manual Range Voice | On / Off | On |
 | Keep Screen On | On / Off | On |
 | Timer/Stopwatch | On / Off | On |
 | Music Controls | On / Off | On |
 | Chart Window | 5 / 10 / 20 min | 5 min |
 | Language | English / Russian | English |
+
+---
+
+## Export Formats
+
+Session history supports two export formats for easy import in other apps:
+
+- `CSV`:
+  - Header: `timestamp,heart_rate,bpm`
+  - `timestamp` is ISO-8601
+  - `heart_rate` and `bpm` contain the same value for compatibility
+- `JSON`:
+  - Metadata: `format`, `format_version`, `session_id`, `started_at`, `ended_at`
+  - Session profile: `age`, `max_hr`, `target_zone_min`, `target_zone_max`, `heart_rate_unit`
+  - Data points: `readings[]` with timestamp and heart rate values
+
+Both CSV and JSON can be shared as files or copied to clipboard directly from the app UI.
 
 ---
 

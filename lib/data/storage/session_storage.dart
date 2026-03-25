@@ -4,12 +4,33 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants.dart';
-import '../../domain/models/hr_reading.dart';
 import '../../domain/models/hr_session.dart';
+import 'settings_storage.dart';
 
 /// Сохранение сессий в CSV и JSON
 class SessionStorage {
+  SessionStorage({SettingsStorage? settingsStorage})
+      : _settingsStorage = settingsStorage;
+
+  final SettingsStorage? _settingsStorage;
+
   Future<Directory> _getSessionsDir() async {
+    final customPath = _settingsStorage?.sessionsCustomDirPath;
+    if (customPath != null && customPath.isNotEmpty) {
+      final customDir = Directory(customPath);
+      try {
+        if (!await customDir.exists()) {
+          await customDir.create(recursive: true);
+        }
+        final probe = File('${customDir.path}/.write_test');
+        await probe.writeAsString('ok');
+        await probe.delete();
+        return customDir;
+      } catch (_) {
+        // Fall back to default path strategy when custom path is unavailable.
+      }
+    }
+
     if (Platform.isAndroid) {
       // Пробуем сохранить логи в понятный публичный каталог телефона.
       final publicDir = Directory(AppConstants.androidPublicLogsFolder);

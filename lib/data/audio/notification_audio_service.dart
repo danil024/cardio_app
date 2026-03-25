@@ -166,27 +166,28 @@ class NotificationAudioService {
   Future<void> _emitAlert() async {
     if (_alertState == AlertState.none || _disposed) return;
 
-    // 1. Play beep tone (if enabled).
-    if (_rangeUseBeep) {
-      try {
-        await _playTone(_alertState, ignoreMasterSwitch: true);
-      } catch (_) {}
-      // Release audio focus so TTS can acquire its own session.
-      try {
-        await _tonePlayer.stop();
-      } catch (_) {}
-    }
+    final jobs = <Future<void>>[];
 
-    // 2. Speak voice (if enabled). Runs after a short gap to let
-    //    Android release the audioplayers AudioSession.
+    // Beep and voice run in parallel so they do not interrupt each other.
+    if (_rangeUseBeep) {
+      jobs.add(_playTone(_alertState));
+    }
     if (_rangeUseVoice) {
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      await _speakAlert();
+      jobs.add(_speakAlert());
+    }
+    if (jobs.isEmpty) {
+      return;
+    }
+    try {
+      await Future.wait(jobs);
+    } catch (_) {
+      // Any single failure must not break the alert loop.
     }
   }
 
   Future<void> _speakAlert() async {
     if (!_ttsReady || _alertState == AlertState.none || _disposed) return;
+    if (!ttsEnabled) return;
 
     final now = DateTime.now();
     const cooldown = Duration(seconds: 5);
@@ -197,7 +198,6 @@ class NotificationAudioService {
 
     _lastTtsAt = now;
     try {
-      await _tts.stop();
       await _tts.speak(text);
     } catch (_) {
       // TTS failure must not break the alert loop.
@@ -276,29 +276,18 @@ class NotificationAudioService {
   // ────────────────────────────────────────────────────────────────────
 
   AudioContext _audioContextForState(AlertState state) {
-    final emergencyStop = state == AlertState.danger ||
-        state == AlertState.customEmergency ||
-        state == AlertState.reducePace;
-    final startDuck = state == AlertState.increasePace;
+    final isEmergency =
+        state == AlertState.danger || state == AlertState.customEmergency;
     return AudioContext(
       android: AudioContextAndroid(
         contentType: AndroidContentType.sonification,
-        usageType: emergencyStop
-            ? AndroidUsageType.alarm
-            : AndroidUsageType.assistanceSonification,
-        audioFocus: emergencyStop
-            ? AndroidAudioFocus.gainTransient
-            : startDuck
-                ? AndroidAudioFocus.gainTransientMayDuck
-                : AndroidAudioFocus.none,
+        usageType:
+            isEmergency ? AndroidUsageType.notification : AndroidUsageType.assistanceSonification,
+        audioFocus: AndroidAudioFocus.none,
       ),
       iOS: AudioContextIOS(
         category: AVAudioSessionCategory.playback,
-        options: emergencyStop
-            ? {AVAudioSessionOptions.duckOthers}
-            : startDuck
-                ? {AVAudioSessionOptions.duckOthers}
-                : {AVAudioSessionOptions.mixWithOthers},
+        options: const {AVAudioSessionOptions.mixWithOthers},
       ),
     );
   }
@@ -418,26 +407,32 @@ class NotificationAudioService {
 
   Future<void> notifyStartExercise({required bool useVoice}) async {
     if (_disposed) return;
+    final jobs = <Future<void>>[];
     if (soundEnabled) {
-      try {
-        await _tonePlayer
-            .setAudioContext(_audioContextForState(AlertState.increasePace));
-        await _playPattern(const [
-          _ToneStep(520, 90),
-          _ToneStep(700, 90),
-          _ToneStep(860, 120),
-        ]);
-      } catch (_) {}
+      jobs.add(() async {
+        try {
+          await _tonePlayer
+              .setAudioContext(_audioContextForState(AlertState.increasePace));
+          await _playPattern(const [
+            _ToneStep(520, 90),
+            _ToneStep(700, 90),
+            _ToneStep(860, 120),
+          ]);
+        } catch (_) {}
+      }());
     }
-    if (useVoice && _ttsReady) {
-      try {
-        await Future<void>.delayed(const Duration(milliseconds: 150));
+    if (useVoice && _ttsReady && ttsEnabled) {
+      jobs.add(() async {
+        try {
         final isRu = _ttsEffectiveLanguage == AppStrings.ru;
-        await _tts.stop();
         await _tts.speak(isRu
             ? 'Пульс достиг порога. Начинайте упражнение.'
             : 'Heart rate reached the threshold. Start exercise.');
-      } catch (_) {}
+        } catch (_) {}
+      }());
+    }
+    if (jobs.isNotEmpty) {
+      await Future.wait(jobs);
     }
   }
 
@@ -446,26 +441,32 @@ class NotificationAudioService {
     bool forceSound = true,
   }) async {
     if (_disposed) return;
+    final jobs = <Future<void>>[];
     if (soundEnabled || forceSound) {
-      try {
-        await _tonePlayer
-            .setAudioContext(_audioContextForState(AlertState.danger));
-        await _tonePlayer.setVolume(1.0);
-        await _playPattern(const [
-          _ToneStep(920, 200),
-          _ToneStep(920, 200),
-          _ToneStep(920, 220),
-          _ToneStep(980, 240),
-        ]);
-      } catch (_) {}
+      jobs.add(() async {
+        try {
+          await _tonePlayer
+              .setAudioContext(_audioContextForState(AlertState.danger));
+          await _tonePlayer.setVolume(1.0);
+          await _playPattern(const [
+            _ToneStep(920, 200),
+            _ToneStep(920, 200),
+            _ToneStep(920, 220),
+            _ToneStep(980, 240),
+          ]);
+        } catch (_) {}
+      }());
     }
-    if (useVoice && _ttsReady) {
-      try {
-        await Future<void>.delayed(const Duration(milliseconds: 150));
+    if (useVoice && _ttsReady && ttsEnabled) {
+      jobs.add(() async {
+        try {
         final isRu = _ttsEffectiveLanguage == AppStrings.ru;
-        await _tts.stop();
         await _tts.speak(isRu ? 'Таймер завершён.' : 'Timer finished.');
-      } catch (_) {}
+        } catch (_) {}
+      }());
+    }
+    if (jobs.isNotEmpty) {
+      await Future.wait(jobs);
     }
   }
 

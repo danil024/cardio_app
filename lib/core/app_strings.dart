@@ -62,10 +62,33 @@ class AppStrings {
       isRu(languageCode) ? 'Целевая зона' : 'Target zone';
   static String hrAlertModeManual(String languageCode) =>
       isRu(languageCode) ? 'Ручной диапазон' : 'Manual range';
+  static String manualRangeName(String languageCode) =>
+      isRu(languageCode) ? 'Ручной диапазон' : 'Manual range';
+  static String manualRangeIn(String languageCode) =>
+      isRu(languageCode) ? 'в диапазоне' : 'in range';
+  static String manualRangeBelow(String languageCode) =>
+      isRu(languageCode) ? 'ниже диапазона' : 'below range';
+  static String manualRangeAbove(String languageCode) =>
+      isRu(languageCode) ? 'выше диапазона' : 'above range';
   static String rangeBeepToggle(String languageCode) =>
       isRu(languageCode) ? 'Биппер диапазона' : 'Range beeper';
   static String rangeVoiceToggle(String languageCode) =>
       isRu(languageCode) ? 'Голос диапазона' : 'Range voice';
+  static String manualRangeBeepToggle(String languageCode) =>
+      isRu(languageCode)
+          ? 'Биппер (ручной диапазон)'
+          : 'Beeper (manual range)';
+  static String manualRangeVoiceToggle(String languageCode) =>
+      isRu(languageCode)
+          ? 'Голос (ручной диапазон)'
+          : 'Voice (manual range)';
+  static String zoneModeAudioInfoTitle(String languageCode) => isRu(languageCode)
+      ? 'Оповещения в целевой зоне'
+      : 'Target zone alerts';
+  static String zoneModeAudioInfoSubtitle(String languageCode) =>
+      isRu(languageCode)
+          ? 'В этом режиме биппер и голосовые сообщения включены всегда.'
+          : 'In this mode, beeper and voice messages are always enabled.';
   static String allowedRangeLabel(String languageCode, int minBpm, int maxBpm) =>
       isRu(languageCode)
           ? 'Допустимый диапазон: $minBpm-$maxBpm уд/мин'
@@ -96,6 +119,10 @@ class AppStrings {
       isRu(languageCode) ? 'Отключить' : 'Disconnect';
   static String connect(String languageCode) =>
       isRu(languageCode) ? 'Подключить' : 'Connect';
+  static String disconnectCompact(String languageCode) =>
+      isRu(languageCode) ? 'Откл.' : 'Disconnect';
+  static String connectCompact(String languageCode) =>
+      isRu(languageCode) ? 'Подкл.' : 'Connect';
 
   static String historyTitle(String languageCode) =>
       isRu(languageCode) ? 'История тренировок' : 'Workout history';
@@ -131,15 +158,107 @@ class AppStrings {
       isRu(languageCode) ? 'Копировать путь CSV' : 'Copy CSV path';
   static String shareCsv(String languageCode) =>
       isRu(languageCode) ? 'Переслать CSV' : 'Share CSV';
+  static String shareJson(String languageCode) =>
+      isRu(languageCode) ? 'Переслать JSON' : 'Share JSON';
+  static String copyCsvContent(String languageCode) =>
+      isRu(languageCode) ? 'Скопировать CSV в буфер' : 'Copy CSV to clipboard';
+  static String copyJsonContent(String languageCode) =>
+      isRu(languageCode) ? 'Скопировать JSON в буфер' : 'Copy JSON to clipboard';
+  static String copiedCsvContent(String languageCode) =>
+      isRu(languageCode)
+          ? 'Содержимое CSV скопировано'
+          : 'CSV content copied';
+  static String copiedJsonContent(String languageCode) =>
+      isRu(languageCode)
+          ? 'Содержимое JSON скопировано'
+          : 'JSON content copied';
+  static String export(String languageCode) =>
+      isRu(languageCode) ? 'Экспорт' : 'Export';
+  static String exportCsvFile(String languageCode) =>
+      isRu(languageCode) ? 'CSV файл' : 'CSV file';
+  static String exportJsonFile(String languageCode) =>
+      isRu(languageCode) ? 'JSON файл' : 'JSON file';
+  static String exportCsvClipboard(String languageCode) =>
+      isRu(languageCode) ? 'CSV в буфер' : 'CSV to clipboard';
+  static String exportJsonClipboard(String languageCode) =>
+      isRu(languageCode) ? 'JSON в буфер' : 'JSON to clipboard';
+  static String exportChartPngFile(String languageCode) =>
+      isRu(languageCode)
+          ? 'PNG график (Галерея: CardioApp Export)'
+          : 'Chart PNG (Gallery: CardioApp Export)';
+  static String exportChartPngShare(String languageCode) =>
+      isRu(languageCode) ? 'Поделиться PNG графиком' : 'Share chart PNG';
+  static String chartPngSaved(String languageCode, String path) =>
+      isRu(languageCode)
+          ? 'График сохранён: $path'
+          : 'Chart saved: $path';
+  static String chartPngSaveFailed(String languageCode) =>
+      isRu(languageCode)
+          ? 'Не удалось сохранить изображение графика'
+          : 'Failed to save chart image';
+  static String storagePathTitle(String languageCode) =>
+      isRu(languageCode) ? 'Папка сохранения истории' : 'History storage folder';
+  static String chooseStoragePath(String languageCode) =>
+      isRu(languageCode) ? 'Выбрать папку' : 'Choose folder';
+  static String resetStoragePath(String languageCode) =>
+      isRu(languageCode) ? 'Сбросить путь' : 'Reset path';
+  static String currentStoragePath(String languageCode, String path) =>
+      isRu(languageCode) ? 'Текущий путь: $path' : 'Current path: $path';
+  static String defaultStoragePathUsed(String languageCode) => isRu(languageCode)
+      ? 'Используется путь по умолчанию'
+      : 'Default storage path is used';
+  static String storagePathUpdated(String languageCode) =>
+      isRu(languageCode) ? 'Папка сохранения обновлена' : 'Storage folder updated';
+  static String storagePathUpdateFailed(String languageCode) =>
+      isRu(languageCode)
+          ? 'Не удалось выбрать папку сохранения'
+          : 'Failed to select storage folder';
   static String deleteLog(String languageCode) =>
       isRu(languageCode) ? 'Удалить лог' : 'Delete log';
   static String logsHint(String languageCode, String path) => isRu(languageCode)
       ? 'Логи сохраняются автоматически при остановке/отключении сессии.\n'
+          'Путь можно изменить в Настройках.\n'
           'Для каждой сессии создаются 2 файла: CSV и JSON.\n'
           'Папка логов: $path'
       : 'Logs are saved automatically when the session stops/disconnects.\n'
+          'You can change the folder in Settings.\n'
           'Each session creates 2 files: CSV and JSON.\n'
           'Logs folder: $path';
+  static String saveHistory(String languageCode) =>
+      isRu(languageCode) ? 'Сохранить' : 'Save';
+  static String historySaved(String languageCode) =>
+      isRu(languageCode) ? 'Сессия сохранена в историю' : 'Session saved to history';
+  static String historySaveUnavailable(String languageCode) => isRu(languageCode)
+      ? 'Нет данных для сохранения'
+      : 'No data to save';
+  static String selectedCount(String languageCode, int count) => isRu(languageCode)
+      ? 'Выбрано: $count'
+      : 'Selected: $count';
+  static String selectAll(String languageCode) =>
+      isRu(languageCode) ? 'Выбрать все' : 'Select all';
+  static String clearSelection(String languageCode) =>
+      isRu(languageCode) ? 'Снять выбор' : 'Clear';
+  static String bulkExport(String languageCode) =>
+      isRu(languageCode) ? 'Экспорт' : 'Export';
+  static String bulkCopy(String languageCode) =>
+      isRu(languageCode) ? 'Копировать' : 'Copy';
+  static String bulkDelete(String languageCode) =>
+      isRu(languageCode) ? 'Удалить' : 'Delete';
+  static String bulkDeleteTitle(String languageCode, int count) =>
+      isRu(languageCode)
+          ? 'Удалить выбранные ($count)?'
+          : 'Delete selected ($count)?';
+  static String bulkDeleteDescription(String languageCode) => isRu(languageCode)
+      ? 'Будут удалены CSV и JSON файлы выбранных сессий.'
+      : 'CSV and JSON files of selected sessions will be deleted.';
+  static String copiedBulkCsvContent(String languageCode, int count) =>
+      isRu(languageCode)
+          ? 'CSV данных скопировано: $count'
+          : 'Copied CSV data: $count';
+  static String copiedBulkJsonContent(String languageCode, int count) =>
+      isRu(languageCode)
+          ? 'JSON данных скопировано: $count'
+          : 'Copied JSON data: $count';
   static String durationLabel(String languageCode) =>
       isRu(languageCode) ? 'Длительность' : 'Duration';
   static String hrAvgMaxMin(String languageCode, int avg, int max, int min) =>

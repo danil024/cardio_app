@@ -36,6 +36,10 @@ class HomeStopRecording extends HomeEvent {
   const HomeStopRecording();
 }
 
+class HomeSaveHistoryRequested extends HomeEvent {
+  const HomeSaveHistoryRequested();
+}
+
 class HomeBleStatusChanged extends HomeEvent {
   const HomeBleStatusChanged(this.status);
 

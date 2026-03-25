@@ -31,6 +31,11 @@ const _keyRangeAlertMaxBpm = 'range_alert_max_bpm';
 const _keyHrRangeMode = 'hr_range_mode';
 const _keyEnableRangeBeep = 'enable_range_beep';
 const _keyEnableRangeVoice = 'enable_range_voice';
+const _keyZoneRangeBeep = 'zone_range_beep';
+const _keyZoneRangeVoice = 'zone_range_voice';
+const _keyManualRangeBeep = 'manual_range_beep';
+const _keyManualRangeVoice = 'manual_range_voice';
+const _keySessionsCustomDirPath = 'sessions_custom_dir_path';
 
 /// Хранилище настроек
 class SettingsStorage {
@@ -232,6 +237,82 @@ class SettingsStorage {
 
   set enableRangeVoice(bool value) {
     _prefs.setBool(_keyEnableRangeVoice, value);
+  }
+
+  bool get zoneRangeBeepEnabled {
+    final stored = _prefs.getBool(_keyZoneRangeBeep);
+    if (stored != null) {
+      return stored;
+    }
+    return true;
+  }
+
+  set zoneRangeBeepEnabled(bool value) {
+    _prefs.setBool(_keyZoneRangeBeep, value);
+  }
+
+  bool get zoneRangeVoiceEnabled {
+    final stored = _prefs.getBool(_keyZoneRangeVoice);
+    if (stored != null) {
+      return stored;
+    }
+    return true;
+  }
+
+  set zoneRangeVoiceEnabled(bool value) {
+    _prefs.setBool(_keyZoneRangeVoice, value);
+  }
+
+  bool get manualRangeBeepEnabled {
+    final stored = _prefs.getBool(_keyManualRangeBeep);
+    if (stored != null) {
+      return stored;
+    }
+    final legacy = _prefs.getBool(_keyEnableRangeBeep);
+    if (legacy != null) {
+      return legacy;
+    }
+    return true;
+  }
+
+  set manualRangeBeepEnabled(bool value) {
+    _prefs.setBool(_keyManualRangeBeep, value);
+    // Keep legacy key in sync for backward compatibility.
+    _prefs.setBool(_keyEnableRangeBeep, value);
+  }
+
+  bool get manualRangeVoiceEnabled {
+    final stored = _prefs.getBool(_keyManualRangeVoice);
+    if (stored != null) {
+      return stored;
+    }
+    final legacy = _prefs.getBool(_keyEnableRangeVoice);
+    if (legacy != null) {
+      return legacy;
+    }
+    return true;
+  }
+
+  set manualRangeVoiceEnabled(bool value) {
+    _prefs.setBool(_keyManualRangeVoice, value);
+    // Keep legacy key in sync for backward compatibility.
+    _prefs.setBool(_keyEnableRangeVoice, value);
+  }
+
+  String? get sessionsCustomDirPath {
+    final value = _prefs.getString(_keySessionsCustomDirPath);
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return value;
+  }
+
+  set sessionsCustomDirPath(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      _prefs.remove(_keySessionsCustomDirPath);
+      return;
+    }
+    _prefs.setString(_keySessionsCustomDirPath, value.trim());
   }
 
   int get rangeAlertMinBpm {

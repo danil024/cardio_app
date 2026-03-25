@@ -144,6 +144,14 @@ class HistoryRepository {
     );
   }
 
+  Future<String> loadCsvContent(SessionSummary summary) async {
+    return File(summary.csvPath).readAsString();
+  }
+
+  Future<String> loadJsonContent(SessionSummary summary) async {
+    return File(summary.jsonPath).readAsString();
+  }
+
   List<HrReading> _parseReadings(dynamic rawReadings) {
     final readingsList = (rawReadings as List<dynamic>? ?? []);
     return readingsList

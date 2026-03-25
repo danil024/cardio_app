@@ -23,19 +23,41 @@ class ZoneIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final languageCode = context.read<SettingsStorage>().uiLanguage;
+    final settings = context.read<SettingsStorage>();
+    final languageCode = settings.uiLanguage;
     if (heartRate == null || zones == null) {
       return const SizedBox.shrink();
     }
 
-    final zone = zones!.zoneFor(heartRate!);
+    final isManualMode = settings.hrRangeMode == 'manual';
+    final bpmLabel = AppStrings.isRu(languageCode) ? 'уд/мин' : 'bpm';
 
+    if (isManualMode) {
+      final minBpm = settings.rangeAlertMinBpm;
+      final maxBpm = settings.rangeAlertMaxBpm;
+      final status = heartRate! < minBpm
+          ? AppStrings.manualRangeBelow(languageCode)
+          : heartRate! > maxBpm
+              ? AppStrings.manualRangeAbove(languageCode)
+              : AppStrings.manualRangeIn(languageCode);
+      return Text(
+        '${AppStrings.manualRangeName(languageCode)}: '
+        '$minBpm-$maxBpm $bpmLabel ($status)',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: color,
+          fontSize: 18,
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    }
+
+    final zone = zones!.zoneFor(heartRate!);
     if (zone == null) return const SizedBox.shrink();
 
     final percentMin = (zone.minPercent * 100).round();
     final percentMax = (zone.maxPercent * 100).round();
     final zoneName = AppStrings.zoneName(languageCode, zone.type);
-    final bpmLabel = AppStrings.isRu(languageCode) ? 'уд/мин' : 'bpm';
     final text = Text(
       '$zoneName (${zone.minBpm}-${zone.maxBpm} $bpmLabel, $percentMin-$percentMax%)',
       textAlign: TextAlign.center,

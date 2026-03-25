@@ -46,12 +46,15 @@ class HrSession extends Equatable {
   }
 
   Map<String, dynamic> toJson() => {
+        'format': 'cardio_app_session',
+        'format_version': 1,
         'session_id': id,
         'started_at': startedAt.toIso8601String(),
         'age': zones.age,
         'max_hr': zones.maxHr,
         'target_zone_min': zones.targetZoneMinBpm,
         'target_zone_max': zones.targetZoneMaxBpm,
+        'heart_rate_unit': 'bpm',
         'ended_at': endedAt?.toIso8601String(),
         'readings': readings.map((r) => r.toJson()).toList(),
       };

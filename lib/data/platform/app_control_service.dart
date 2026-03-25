@@ -12,4 +12,12 @@ class AppControlService {
     }
     await _channel.invokeMethod<void>('forceExit');
   }
+
+  Future<void> minimizeApp() async {
+    if (!Platform.isAndroid) {
+      await SystemNavigator.pop();
+      return;
+    }
+    await _channel.invokeMethod<void>('minimizeApp');
+  }
 }

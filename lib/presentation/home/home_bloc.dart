@@ -43,6 +43,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeHeartRateReceived>(_onHeartRateReceived);
     on<HomeStartRecording>(_onStartRecording);
     on<HomeStopRecording>(_onStopRecording);
+    on<HomeSaveHistoryRequested>(_onSaveHistoryRequested);
     on<HomeBleStatusChanged>(_onBleStatusChanged);
     on<HomeOpenSettings>(_onOpenSettings);
     on<HomeRefreshSettings>(_onRefreshSettings);
@@ -235,8 +236,6 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     final zones = _settingsStorage.zones;
     final reading = event.reading;
 
-    final newReadings = List<HrReading>.from(state.readings)..add(reading);
-
     HrSession? session = state.session;
     if (session != null && state.isRecording) {
       _sessionReadings.add(reading);
@@ -244,22 +243,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           session.copyWith(readings: List<HrReading>.from(_sessionReadings));
     }
 
-    // Ограничиваем readings для графика (последние N минут)
-    // Use the in-state value so chart axis and trimmed points
-    // always use exactly the same window.
-    final chartMinutes = state.chartWindowMinutes;
-    final cutoff = DateTime.now().subtract(
-      Duration(minutes: chartMinutes),
+    final sourceForChart = state.isRecording
+        ? List<HrReading>.from(_sessionReadings)
+        : (List<HrReading>.from(state.readings)..add(reading));
+    final lightweightChartReadings = _buildChartReadings(
+      source: sourceForChart,
+      chartMinutes: state.chartWindowMinutes,
     );
-    final chartReadings =
-        newReadings.where((r) => r.timestamp.isAfter(cutoff)).toList();
-    // Keep points by time window first. Do not depend on user-selected poll
-    // interval here because real BLE sensors may emit at a different rate.
-    // A hard cap only protects memory in pathological cases.
-    const maxPoints = 5000;
-    final lightweightChartReadings = chartReadings.length <= maxPoints
-        ? chartReadings
-        : chartReadings.sublist(chartReadings.length - maxPoints);
 
     // Оповещения
     _audioService.soundEnabled = _settingsStorage.soundEnabled;
@@ -267,6 +257,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _audioService.setTtsLanguage(_settingsStorage.ttsLanguage);
     final rangeMode = _settingsStorage.hrRangeMode;
     final useManualRange = rangeMode == 'manual';
+    final useBeep = useManualRange
+        ? _settingsStorage.manualRangeBeepEnabled
+        : _settingsStorage.zoneRangeBeepEnabled;
+    final useVoice = useManualRange
+        ? _settingsStorage.manualRangeVoiceEnabled
+        : _settingsStorage.zoneRangeVoiceEnabled;
     final rangeMin = _settingsStorage.rangeAlertMinBpm;
     final rangeMax = _settingsStorage.rangeAlertMaxBpm;
     final aboveGuidance = useManualRange
@@ -280,8 +276,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       inCustomEmergency: false,
       aboveTarget: aboveGuidance,
       belowTarget: belowGuidance,
-      useBeep: _settingsStorage.enableRangeBeep,
-      useVoice: _settingsStorage.enableRangeVoice,
+      useBeep: useBeep,
+      useVoice: useVoice,
     );
 
     emit(state.copyWith(
@@ -319,6 +315,35 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     await _persistCurrentSession(emit, suggestCleanup: true);
   }
 
+  Future<void> _onSaveHistoryRequested(
+    HomeSaveHistoryRequested event,
+    Emitter<HomeState> emit,
+  ) async {
+    final currentSession = state.session;
+    if (!state.isRecording || currentSession == null || _sessionReadings.isEmpty) {
+      return;
+    }
+    final snapshot = currentSession.copyWith(
+      endedAt: DateTime.now(),
+      readings: List<HrReading>.from(_sessionReadings),
+    );
+    await _sessionStorage.saveSession(snapshot);
+
+    final nextSession = HrSession(
+      id: const Uuid().v4(),
+      startedAt: DateTime.now(),
+      zones: _settingsStorage.zones,
+      readings: const [],
+    );
+    _sessionReadings.clear();
+
+    emit(state.copyWith(
+      session: nextSession,
+      isRecording: true,
+      historySaveVersion: state.historySaveVersion + 1,
+    ));
+  }
+
   void _onDismissCleanupDialog(
       HomeDismissCleanupDialog event, Emitter<HomeState> emit) {
     emit(state.copyWith(shouldShowCleanupDialog: false));
@@ -349,9 +374,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       Duration(milliseconds: _settingsStorage.sensorPollIntervalMs),
     );
     _audioService.setTtsLanguage(_settingsStorage.ttsLanguage);
+    final nextChartWindowMinutes = _settingsStorage.chartWindowMinutes;
+    final chartSource = state.isRecording
+        ? List<HrReading>.from(_sessionReadings)
+        : List<HrReading>.from(state.readings);
+    final recalculatedReadings = _buildChartReadings(
+      source: chartSource,
+      chartMinutes: nextChartWindowMinutes,
+    );
     emit(state.copyWith(
       zones: _settingsStorage.zones,
-      chartWindowMinutes: _settingsStorage.chartWindowMinutes,
+      chartWindowMinutes: nextChartWindowMinutes,
+      readings: recalculatedReadings,
       timerMode: _timerModeFromSettings(_settingsStorage.timerMode),
       timerDurationSeconds: _settingsStorage.timerDurationSeconds,
       timerRemainingSeconds: state.isTimerRunning
@@ -663,6 +697,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _dataWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       add(const HomeDataWatchdogTicked());
     });
+  }
+
+  List<HrReading> _buildChartReadings({
+    required List<HrReading> source,
+    required int chartMinutes,
+  }) {
+    final cutoff = DateTime.now().subtract(Duration(minutes: chartMinutes));
+    final chartReadings = source.where((r) => r.timestamp.isAfter(cutoff)).toList();
+    const maxPoints = 5000;
+    return chartReadings.length <= maxPoints
+        ? chartReadings
+        : chartReadings.sublist(chartReadings.length - maxPoints);
   }
 
   @override

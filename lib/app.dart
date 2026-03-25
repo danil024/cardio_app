@@ -6,6 +6,7 @@ import 'data/audio/notification_audio_service.dart';
 import 'data/ble/ble_heart_rate_service.dart';
 import 'data/media/media_control_service.dart';
 import 'data/platform/app_control_service.dart';
+import 'data/platform/media_export_service.dart';
 import 'data/storage/history_repository.dart';
 import 'data/storage/session_storage.dart';
 import 'data/storage/settings_storage.dart';
@@ -32,10 +33,11 @@ class CardioApp extends StatelessWidget {
         }
         final settings = snapshot.data!;
         final bleService = BleHeartRateService();
-        final sessionStorage = SessionStorage();
+        final sessionStorage = SessionStorage(settingsStorage: settings);
         final audioService = NotificationAudioService();
         final mediaControlService = MediaControlService();
         final appControlService = AppControlService();
+        final mediaExportService = MediaExportService();
         return MultiRepositoryProvider(
           providers: [
             RepositoryProvider<BleHeartRateService>.value(value: bleService),
@@ -48,6 +50,7 @@ class CardioApp extends StatelessWidget {
             RepositoryProvider<MediaControlService>.value(
                 value: mediaControlService),
             RepositoryProvider<AppControlService>.value(value: appControlService),
+            RepositoryProvider<MediaExportService>.value(value: mediaExportService),
             RepositoryProvider<SettingsStorage>.value(value: settings),
           ],
           child: BlocProvider(
