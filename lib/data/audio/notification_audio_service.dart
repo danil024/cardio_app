@@ -15,6 +15,8 @@ class NotificationAudioService {
 
   // ── Audio tone player ──────────────────────────────────────────────
   final AudioPlayer _tonePlayer = AudioPlayer();
+  final AudioPlayer _metronomePlayer = AudioPlayer();
+  final AudioPlayer _phaseCuePlayer = AudioPlayer();
 
   // ── TTS engine ─────────────────────────────────────────────────────
   final FlutterTts _tts = FlutterTts();
@@ -38,6 +40,8 @@ class NotificationAudioService {
   Timer? _alertTimer;
   DateTime? _lastTtsAt;
   bool _disposed = false;
+  Timer? _metronomeTimer;
+  bool _isPhaseCuePlaying = false;
 
   // ────────────────────────────────────────────────────────────────────
   // Initialization
@@ -46,6 +50,79 @@ class NotificationAudioService {
   Future<void> _initPlayer() async {
     await _tonePlayer.setReleaseMode(ReleaseMode.stop);
     await _tonePlayer.setVolume(1.0);
+    await _metronomePlayer.setReleaseMode(ReleaseMode.stop);
+    await _metronomePlayer.setVolume(1.0);
+    await _phaseCuePlayer.setReleaseMode(ReleaseMode.stop);
+    await _phaseCuePlayer.setVolume(1.0);
+  }
+
+  Future<void> startMetronome({
+    required int bpm,
+    bool playImmediateTick = true,
+  }) async {
+    if (_disposed) return;
+    await stopMetronome();
+    _metronomeTimer = Timer.periodic(
+      Duration(milliseconds: (60000 / bpm).round()),
+      (_) => unawaited(_playMetronomeTick()),
+    );
+    if (playImmediateTick) {
+      await _playMetronomeTick();
+    }
+  }
+
+  Future<void> updateMetronomeBpm({required int bpm}) async {
+    if (_disposed) return;
+    if (_metronomeTimer == null) return;
+    await startMetronome(bpm: bpm);
+  }
+
+  Future<void> stopMetronome() async {
+    _metronomeTimer?.cancel();
+    _metronomeTimer = null;
+    try {
+      await _metronomePlayer.stop();
+      await _phaseCuePlayer.stop();
+    } catch (_) {}
+    _isPhaseCuePlaying = false;
+  }
+
+  Future<void> _playMetronomeTick() async {
+    if (_disposed || _isPhaseCuePlaying) return;
+    final bytes = _buildWavTone(
+      frequencyHz: 1200,
+      durationMs: 45,
+    );
+    try {
+      await _metronomePlayer.stop();
+      await _metronomePlayer.play(BytesSource(bytes));
+    } catch (_) {}
+  }
+
+  Future<void> playMetronomePhaseChangeCue() async {
+    if (_disposed || !soundEnabled) return;
+    _isPhaseCuePlaying = true;
+    try {
+      await _metronomePlayer.stop();
+      await _phaseCuePlayer.setAudioContext(
+        _audioContextForState(AlertState.increasePace),
+      );
+      const pattern = [
+        _ToneStep(1180, 90),
+      ];
+      for (final step in pattern) {
+        final bytes = _buildWavTone(
+          frequencyHz: step.frequencyHz,
+          durationMs: step.durationMs,
+        );
+        await _phaseCuePlayer.stop();
+        await _phaseCuePlayer.play(BytesSource(bytes));
+        await Future<void>.delayed(
+          Duration(milliseconds: step.durationMs + 20),
+        );
+      }
+    } catch (_) {}
+    _isPhaseCuePlaying = false;
   }
 
   void _bootstrapTts() {
@@ -470,6 +547,16 @@ class NotificationAudioService {
     }
   }
 
+  Future<void> speakMetronomeCue(String cueEn) async {
+    if (_disposed || !ttsEnabled || !_ttsReady || cueEn.isEmpty) return;
+    try {
+      await _tts.setLanguage('en-US');
+      await _tts.speak(cueEn);
+      await _tts.setLanguage(
+          _ttsLanguage == AppStrings.ru ? 'ru-RU' : 'en-US');
+    } catch (_) {}
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Lifecycle
   // ────────────────────────────────────────────────────────────────────
@@ -477,10 +564,14 @@ class NotificationAudioService {
   void dispose() {
     _disposed = true;
     _stopAlertTimer();
+    _metronomeTimer?.cancel();
+    _metronomeTimer = null;
     _lastTtsAt = null;
     _alertState = AlertState.none;
     _tts.stop();
     _tonePlayer.dispose();
+    _metronomePlayer.dispose();
+    _phaseCuePlayer.dispose();
   }
 }
 

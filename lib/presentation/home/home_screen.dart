@@ -11,6 +11,7 @@ import '../../data/media/media_control_service.dart';
 import '../../data/platform/app_control_service.dart';
 import '../../data/storage/settings_storage.dart';
 import '../../domain/models/hr_zones.dart';
+import '../../domain/models/metronome_preset.dart';
 import '../history/history_screen.dart';
 import '../settings/settings_screen.dart';
 import 'home_bloc.dart';
@@ -63,9 +64,8 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final isBackgroundState = state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.detached;
+    final isBackgroundState =
+        state == AppLifecycleState.paused || state == AppLifecycleState.detached;
 
     if (!isBackgroundState || _pauseCheckpointRequested) {
       return;
@@ -113,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen>
         child: Scaffold(
           body: BlocBuilder<HomeBloc, HomeState>(
           builder: (context, state) {
+            final showZoneCard = state.currentHeartRate != null && state.zones != null;
+            final chartHeightFactor = _chartHeightFactorForLayout(
+              settings: settings,
+              showZoneCard: showZoneCard,
+            );
             return SafeArea(
               child: Column(
                 children: [
@@ -125,17 +130,21 @@ class _HomeScreenState extends State<HomeScreen>
                       settings,
                     ),
                   ),
-                  Expanded(
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * chartHeightFactor,
                     child: Stack(
                       children: [
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: HrChart(
                             readings: state.readings,
+                            connectionGaps: state.connectionGaps,
+                            activeConnectionGapStartedAt:
+                                state.activeConnectionGapStartedAt,
                             chartWindowMinutes: state.chartWindowMinutes,
                             showTimerMarker: state.isTimerRunning &&
                                 state.timerMode == WorkoutTimerMode.timer,
-                            timerMarkerTimestamp: state.timerEndsAt,
+                            timerMarkerTimestamp: state.timerStartedAt,
                           ),
                         ),
                         Positioned.fill(
@@ -163,6 +172,19 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       ),
     );
+  }
+
+  double _chartHeightFactorForLayout({
+    required SettingsStorage settings,
+    required bool showZoneCard,
+  }) {
+    var units = 0.0;
+    if (showZoneCard) units += 1.0;
+    if (settings.enableMusicControls) units += 1.0;
+    if (settings.enableTimerStopwatch) units += 1.0;
+    if (settings.enableMetronome) units += 1.8;
+    final factor = 0.72 - (units * 0.08);
+    return factor.clamp(0.36, 0.70);
   }
 
   Widget _buildBottomArea({
@@ -314,7 +336,6 @@ class _HomeScreenState extends State<HomeScreen>
             icon: Icons.save_alt,
             onPressed: () {
               final hasData = state.isRecording &&
-                  state.currentHeartRate != null &&
                   (state.session != null);
               if (!hasData) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -413,15 +434,18 @@ class _HomeScreenState extends State<HomeScreen>
   ) {
     final enableTimerStopwatch = settings.enableTimerStopwatch;
     final enableMusicControls = settings.enableMusicControls;
-
+    final enableMetronome = settings.enableMetronome;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (enableMusicControls) _buildMusicControlsCard(context),
+        if (enableMusicControls && enableMetronome)
+          const SizedBox(height: _moduleGap),
+        if (enableMetronome) _buildMetronomeCard(context, state, languageCode),
+        if (enableTimerStopwatch && enableMetronome)
+          const SizedBox(height: _moduleGap),
         if (enableTimerStopwatch)
           _buildTimerStopwatchCard(context, state, languageCode),
-        if (enableTimerStopwatch && enableMusicControls)
-          const SizedBox(height: _moduleGap),
-        if (enableMusicControls) _buildMusicControlsCard(context),
       ],
     );
   }
@@ -517,6 +541,640 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildMetronomeCard(
+    BuildContext context,
+    HomeState state,
+    String languageCode,
+  ) {
+    final presets = state.metronomePresets;
+    final selectedId = state.selectedMetronomePresetId;
+    final selected = selectedId == null
+        ? null
+        : presets.cast<MetronomePreset?>().firstWhere(
+              (p) => p?.id == selectedId,
+              orElse: () => null,
+            );
+    final noPresetText = AppStrings.isRu(languageCode) ? 'Создать пресет' : 'Create preset';
+
+    return _buildUnifiedModuleCard(
+      height: _moduleHeight,
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: OutlinedButton(
+              style: _moduleButtonStyle(minHeight: 44),
+              onPressed: () {
+                final base = selected ??
+                    MetronomePreset(
+                      id: DateTime.now().microsecondsSinceEpoch.toString(),
+                      name: 'Preset ${presets.length + 1}',
+                    );
+                _showMetronomePresetEditor(
+                  context,
+                  languageCode,
+                  initial: base,
+                );
+              },
+              onLongPress: () => _showMetronomePresetManager(context, languageCode),
+              child: Text(
+                selected?.name ?? noPresetText,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton(
+              style: _moduleButtonStyle(minHeight: 44),
+              onPressed: null,
+              child: Text(
+                _formatDurationSeconds(state.metronomePhaseRemainingSec),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton(
+              style: _moduleButtonStyle(minHeight: 44),
+              onPressed: state.isMetronomeSessionRunning
+                  ? () => context
+                      .read<HomeBloc>()
+                      .add(const HomeMetronomeSessionStopped())
+                  : null,
+              child: Text(
+                '${state.metronomeCompletedCycles}/${state.metronomeTargetCycles ?? '∞'}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton(
+              style: _moduleButtonStyle(
+                selected: state.isMetronomeSessionRunning,
+                minHeight: 44,
+              ),
+              onPressed: selected == null
+                  ? null
+                  : () => context.read<HomeBloc>().add(
+                        !state.isMetronomeSessionRunning
+                            ? const HomeMetronomeSessionStarted()
+                            : const HomeMetronomeSessionPauseToggled(),
+                      ),
+              child: Text(
+                !state.isMetronomeSessionRunning
+                    ? AppStrings.metronomeStart(languageCode)
+                    : AppStrings.metronomePauseResume(
+                        languageCode,
+                        state.isMetronomeSessionPaused,
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showMetronomePresetManager(
+    BuildContext context,
+    String languageCode,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: BlocBuilder<HomeBloc, HomeState>(
+            builder: (context, currentState) {
+              final presets = currentState.metronomePresets;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    AppStrings.metronomePresets(languageCode),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final preset in presets)
+                          ListTile(
+                            dense: true,
+                            title: Text(preset.name),
+                            subtitle: Text(
+                              'C:${preset.countdownSec} N:${preset.negativeSec} P:${preset.pauseSec} '
+                              'Pr:${preset.pressSec} R:${preset.restSec}',
+                            ),
+                            onTap: () {
+                              context
+                                  .read<HomeBloc>()
+                                  .add(HomeMetronomePresetSelected(preset.id));
+                              Navigator.pop(ctx);
+                            },
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: AppStrings.save(languageCode),
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    Future<void>.microtask(() {
+                                      if (!context.mounted) return;
+                                      _showMetronomePresetEditor(
+                                        context,
+                                        languageCode,
+                                        initial: preset,
+                                      );
+                                    });
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: () => context
+                                      .read<HomeBloc>()
+                                      .add(HomeMetronomePresetDeleted(preset.id)),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Future<void>.microtask(() {
+                        if (!context.mounted) return;
+                        _showMetronomePresetEditor(
+                          context,
+                          languageCode,
+                          initial: MetronomePreset(
+                            id: DateTime.now().microsecondsSinceEpoch.toString(),
+                            name: 'Preset ${presets.length + 1}',
+                          ),
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.add),
+                    label: Text(AppStrings.save(languageCode)),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMetronomePresetEditor(
+    BuildContext context,
+    String languageCode, {
+    required MetronomePreset initial,
+  }) async {
+    final nameCtrl = TextEditingController(text: initial.name);
+    var countdownSec = initial.countdownSec;
+    var negativeSec = initial.negativeSec;
+    var pauseSec = initial.pauseSec;
+    var pressSec = initial.pressSec;
+    var restSec = initial.restSec;
+    var fixedCycles = initial.fixedCycles;
+    var cycleMode = initial.cycleMode;
+    var countdownEnabled = initial.countdownSec > 0;
+    var negativeEnabled = initial.negativeSec > 0;
+    var pauseEnabled = initial.pauseSec > 0;
+    var pressEnabled = initial.pressSec > 0;
+    var restEnabled = initial.restSec > 0;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false,
+      isDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              24 + MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.isRu(languageCode)
+                          ? 'Название пресета'
+                          : 'Preset name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      AppStrings.isRu(languageCode)
+                          ? 'Фазы'
+                          : 'Phases',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildPhaseRow(
+                    languageCode: languageCode,
+                    phaseKey: 'countdown',
+                    enabled: countdownEnabled,
+                    valueSec: countdownSec,
+                    onEnabledChanged: (v) =>
+                        setModalState(() => countdownEnabled = v),
+                    onPickValue: () async {
+                      final picked = await _showIntegerPickerSheet(
+                        context,
+                        languageCode: languageCode,
+                        title: AppStrings.isRu(languageCode)
+                            ? 'Обратный отсчёт (сек)'
+                            : 'Countdown (sec)',
+                        initialValue: countdownSec,
+                        minValue: 0,
+                        maxValue: 600,
+                      );
+                      if (picked != null && ctx.mounted) {
+                        setModalState(() => countdownSec = picked);
+                      }
+                    },
+                  ),
+                  _buildPhaseRow(
+                    languageCode: languageCode,
+                    phaseKey: 'negative',
+                    enabled: negativeEnabled,
+                    valueSec: negativeSec,
+                    onEnabledChanged: (v) =>
+                        setModalState(() => negativeEnabled = v),
+                    onPickValue: () async {
+                      final picked = await _showIntegerPickerSheet(
+                        context,
+                        languageCode: languageCode,
+                        title: AppStrings.isRu(languageCode)
+                            ? 'Негатив (сек)'
+                            : 'Negative (sec)',
+                        initialValue: negativeSec,
+                        minValue: 0,
+                        maxValue: 600,
+                      );
+                      if (picked != null && ctx.mounted) {
+                        setModalState(() => negativeSec = picked);
+                      }
+                    },
+                  ),
+                  _buildPhaseRow(
+                    languageCode: languageCode,
+                    phaseKey: 'pause',
+                    enabled: pauseEnabled,
+                    valueSec: pauseSec,
+                    onEnabledChanged: (v) => setModalState(() => pauseEnabled = v),
+                    onPickValue: () async {
+                      final picked = await _showIntegerPickerSheet(
+                        context,
+                        languageCode: languageCode,
+                        title: AppStrings.isRu(languageCode)
+                            ? 'Пауза (сек)'
+                            : 'Pause (sec)',
+                        initialValue: pauseSec,
+                        minValue: 0,
+                        maxValue: 600,
+                      );
+                      if (picked != null && ctx.mounted) {
+                        setModalState(() => pauseSec = picked);
+                      }
+                    },
+                  ),
+                  _buildPhaseRow(
+                    languageCode: languageCode,
+                    phaseKey: 'press',
+                    enabled: pressEnabled,
+                    valueSec: pressSec,
+                    onEnabledChanged: (v) => setModalState(() => pressEnabled = v),
+                    onPickValue: () async {
+                      final picked = await _showIntegerPickerSheet(
+                        context,
+                        languageCode: languageCode,
+                        title: AppStrings.isRu(languageCode)
+                            ? 'Жим/подъём (сек)'
+                            : 'Press (sec)',
+                        initialValue: pressSec,
+                        minValue: 0,
+                        maxValue: 600,
+                      );
+                      if (picked != null && ctx.mounted) {
+                        setModalState(() => pressSec = picked);
+                      }
+                    },
+                  ),
+                  _buildPhaseRow(
+                    languageCode: languageCode,
+                    phaseKey: 'rest',
+                    enabled: restEnabled,
+                    valueSec: restSec,
+                    onEnabledChanged: (v) => setModalState(() => restEnabled = v),
+                    onPickValue: () async {
+                      final picked = await _showIntegerPickerSheet(
+                        context,
+                        languageCode: languageCode,
+                        title: AppStrings.isRu(languageCode)
+                            ? 'Отдых (сек)'
+                            : 'Rest (sec)',
+                        initialValue: restSec,
+                        minValue: 0,
+                        maxValue: 600,
+                      );
+                      if (picked != null && ctx.mounted) {
+                        setModalState(() => restSec = picked);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  SegmentedButton<MetronomeCycleMode>(
+                    segments: [
+                      ButtonSegment(
+                        value: MetronomeCycleMode.fixed,
+                        label: Text(AppStrings.isRu(languageCode)
+                            ? 'Фикс. циклы'
+                            : 'Fixed cycles'),
+                      ),
+                      ButtonSegment(
+                        value: MetronomeCycleMode.untilStopped,
+                        label: Text(AppStrings.isRu(languageCode)
+                            ? 'До стопа'
+                            : 'Until stop'),
+                      ),
+                    ],
+                    selected: {cycleMode},
+                    onSelectionChanged: (s) =>
+                        setModalState(() => cycleMode = s.first),
+                  ),
+                  const SizedBox(height: 8),
+                  if (cycleMode == MetronomeCycleMode.fixed)
+                    _buildCycleRow(
+                      languageCode: languageCode,
+                      value: fixedCycles,
+                      onPickValue: () async {
+                        final picked = await _showIntegerPickerSheet(
+                          context,
+                          languageCode: languageCode,
+                          title: AppStrings.isRu(languageCode)
+                              ? 'Количество циклов'
+                              : 'Number of cycles',
+                          initialValue: fixedCycles,
+                          minValue: 1,
+                          maxValue: 999,
+                        );
+                        if (picked != null && ctx.mounted) {
+                          setModalState(() => fixedCycles = picked);
+                        }
+                      },
+                    ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: Text(AppStrings.cancel(languageCode)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: Text(AppStrings.save(languageCode)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (saved == true && context.mounted) {
+      final updated = initial.copyWith(
+        name: nameCtrl.text.trim().isEmpty
+            ? initial.name
+            : nameCtrl.text.trim(),
+        countdownSec: countdownEnabled ? countdownSec.clamp(0, 600) : 0,
+        negativeSec: negativeEnabled ? negativeSec.clamp(0, 600) : 0,
+        pauseSec: pauseEnabled ? pauseSec.clamp(0, 600) : 0,
+        pressSec: pressEnabled ? pressSec.clamp(0, 600) : 0,
+        restSec: restEnabled ? restSec.clamp(0, 600) : 0,
+        cycleMode: cycleMode,
+        fixedCycles: fixedCycles.clamp(1, 999),
+      );
+      context.read<HomeBloc>().add(HomeMetronomePresetSaved(updated));
+    }
+
+    nameCtrl.dispose();
+  }
+
+  Widget _buildPhaseRow({
+    required String languageCode,
+    required String phaseKey,
+    required bool enabled,
+    required int valueSec,
+    required ValueChanged<bool> onEnabledChanged,
+    required VoidCallback onPickValue,
+  }) {
+    final isRu = AppStrings.isRu(languageCode);
+    final phaseLabel = _phaseEditorLabel(languageCode, phaseKey);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Switch.adaptive(
+                  value: enabled,
+                  onChanged: onEnabledChanged,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    phaseLabel,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: enabled ? Colors.white : Colors.white54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 110,
+            child: OutlinedButton(
+              onPressed: enabled ? onPickValue : null,
+              style: _moduleButtonStyle(minHeight: 40),
+              child: Text(
+                '$valueSec ${isRu ? 'сек' : 'sec'}',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCycleRow({
+    required String languageCode,
+    required int value,
+    required VoidCallback onPickValue,
+  }) {
+    final isRu = AppStrings.isRu(languageCode);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              isRu ? 'Количество циклов' : 'Number of cycles',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white70,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 110,
+            child: OutlinedButton(
+              onPressed: onPickValue,
+              style: _moduleButtonStyle(minHeight: 40),
+              child: Text(
+                '$value',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<int?> _showIntegerPickerSheet(
+    BuildContext context, {
+    required String languageCode,
+    required String title,
+    required int initialValue,
+    required int minValue,
+    required int maxValue,
+  }) async {
+    var current = initialValue.clamp(minValue, maxValue);
+    final itemCount = maxValue - minValue + 1;
+    final controller = FixedExtentScrollController(initialItem: current - minValue);
+    final picked = await showCupertinoModalPopup<int>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Material(
+          color: Colors.black.withValues(alpha: 0.85),
+          child: SizedBox(
+            height: 300,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text(AppStrings.cancel(languageCode)),
+                      ),
+                      Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, current),
+                        child: Text(AppStrings.done(languageCode)),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: CupertinoPicker(
+                    scrollController: controller,
+                    itemExtent: 36,
+                    onSelectedItemChanged: (idx) => current = minValue + idx,
+                    children: [
+                      for (var i = 0; i < itemCount; i++)
+                        Center(child: Text('${minValue + i}')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    return picked;
+  }
+
+  String _phaseEditorLabel(String languageCode, String phaseKey) {
+    final ru = AppStrings.isRu(languageCode);
+    switch (phaseKey) {
+      case 'countdown':
+        return ru ? 'Обратный отсчёт' : 'Countdown';
+      case 'negative':
+        return ru ? 'Негатив' : 'Negative';
+      case 'pause':
+        return ru ? 'Пауза' : 'Pause';
+      case 'press':
+        return ru ? 'Жим/подъём' : 'Press';
+      case 'rest':
+        return ru ? 'Отдых' : 'Rest';
+      default:
+        return phaseKey;
+    }
   }
 
   Widget _buildUnifiedModuleCard({

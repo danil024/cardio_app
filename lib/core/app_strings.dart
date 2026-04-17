@@ -45,6 +45,24 @@ class AppStrings {
   static String keepScreenOnSubtitle(String languageCode) => isRu(languageCode)
       ? 'Экран остаётся включённым при подключённом пульсометре'
       : 'Screen stays on while heart monitor is connected';
+  static String metronomeTitle(String languageCode) =>
+      isRu(languageCode) ? 'Метроном' : 'Metronome';
+  static String metronomeHomeToggle(String languageCode) =>
+      isRu(languageCode) ? 'Метроном на главном' : 'Metronome on home';
+  static String metronomeBpmLabel(String languageCode, int bpm) =>
+      isRu(languageCode) ? 'Темп: $bpm BPM' : 'Tempo: $bpm BPM';
+  static String metronomePresets(String languageCode) =>
+      isRu(languageCode) ? 'Пресеты метронома' : 'Metronome presets';
+  static String metronomeManagePresets(String languageCode) =>
+      isRu(languageCode) ? 'Управлять пресетами' : 'Manage presets';
+  static String metronomeStart(String languageCode) =>
+      isRu(languageCode) ? 'Старт' : 'Start';
+  static String metronomePauseResume(String languageCode, bool paused) =>
+      isRu(languageCode)
+          ? (paused ? 'Продолжить' : 'Пауза')
+          : (paused ? 'Resume' : 'Pause');
+  static String metronomeStop(String languageCode) =>
+      isRu(languageCode) ? 'Стоп' : 'Stop';
   static String alerts(String languageCode) =>
       isRu(languageCode) ? 'Оповещения' : 'Alerts';
   static String soundAlerts(String languageCode) =>

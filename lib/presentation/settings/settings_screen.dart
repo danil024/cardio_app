@@ -57,6 +57,8 @@ class _SettingsContentState extends State<_SettingsContent> {
   late int _rangeAlertMaxBpm;
   late bool _enableTimerStopwatch;
   late bool _enableMusicControls;
+  late bool _enableMetronome;
+  late bool _metronomeVoiceCuesEnabled;
   String? _sessionsCustomDirPath;
   late FixedExtentScrollController _agePickerController;
   late List<({HrZoneType type, double min, double max})> _presets;
@@ -80,6 +82,8 @@ class _SettingsContentState extends State<_SettingsContent> {
     _rangeAlertMaxBpm = widget.settings.rangeAlertMaxBpm;
     _enableTimerStopwatch = widget.settings.enableTimerStopwatch;
     _enableMusicControls = widget.settings.enableMusicControls;
+    _enableMetronome = widget.settings.enableMetronome;
+    _metronomeVoiceCuesEnabled = widget.settings.metronomeVoiceCuesEnabled;
     _sessionsCustomDirPath = widget.settings.sessionsCustomDirPath;
     _agePickerController =
         FixedExtentScrollController(initialItem: _age - AppConstants.minAge);
@@ -126,6 +130,8 @@ class _SettingsContentState extends State<_SettingsContent> {
     widget.settings.rangeAlertMaxBpm = _rangeAlertMaxBpm;
     widget.settings.enableTimerStopwatch = _enableTimerStopwatch;
     widget.settings.enableMusicControls = _enableMusicControls;
+    widget.settings.enableMetronome = _enableMetronome;
+    widget.settings.metronomeVoiceCuesEnabled = _metronomeVoiceCuesEnabled;
     widget.settings.sessionsCustomDirPath = _sessionsCustomDirPath;
     context.read<HomeBloc>().add(const HomeRefreshSettings());
   }
@@ -400,6 +406,25 @@ class _SettingsContentState extends State<_SettingsContent> {
               _persistSettings();
             }),
           ),
+          SwitchListTile(
+            title: Text(AppStrings.metronomeHomeToggle(languageCode)),
+            value: _enableMetronome,
+            onChanged: (v) => setState(() {
+              _enableMetronome = v;
+              _persistSettings();
+            }),
+          ),
+          if (_enableMetronome)
+            SwitchListTile(
+              title: Text(AppStrings.isRu(languageCode)
+                  ? 'Озвучка фаз (английский)'
+                  : 'Phase voice cues (English)'),
+              value: _metronomeVoiceCuesEnabled,
+              onChanged: (v) => setState(() {
+                _metronomeVoiceCuesEnabled = v;
+                _persistSettings();
+              }),
+            ),
           const SizedBox(height: 8),
           Text(
             AppStrings.storagePathTitle(languageCode),

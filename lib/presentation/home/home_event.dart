@@ -131,3 +131,56 @@ class HomeDataWatchdogTicked extends HomeEvent {
 class HomeAppPausedCheckpointRequested extends HomeEvent {
   const HomeAppPausedCheckpointRequested();
 }
+
+
+class HomeMetronomeBpmChanged extends HomeEvent {
+  const HomeMetronomeBpmChanged(this.bpm);
+
+  final int bpm;
+
+  @override
+  List<Object?> get props => [bpm];
+}
+
+class HomeMetronomePresetSelected extends HomeEvent {
+  const HomeMetronomePresetSelected(this.presetId);
+
+  final String presetId;
+
+  @override
+  List<Object?> get props => [presetId];
+}
+
+class HomeMetronomePresetSaved extends HomeEvent {
+  const HomeMetronomePresetSaved(this.preset);
+
+  final MetronomePreset preset;
+
+  @override
+  List<Object?> get props => [preset];
+}
+
+class HomeMetronomePresetDeleted extends HomeEvent {
+  const HomeMetronomePresetDeleted(this.presetId);
+
+  final String presetId;
+
+  @override
+  List<Object?> get props => [presetId];
+}
+
+class HomeMetronomeSessionStarted extends HomeEvent {
+  const HomeMetronomeSessionStarted();
+}
+
+class HomeMetronomeSessionPauseToggled extends HomeEvent {
+  const HomeMetronomeSessionPauseToggled();
+}
+
+class HomeMetronomeSessionStopped extends HomeEvent {
+  const HomeMetronomeSessionStopped();
+}
+
+class HomeMetronomePhaseTicked extends HomeEvent {
+  const HomeMetronomePhaseTicked();
+}

@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants.dart';
 import '../../core/utils.dart';
+import '../../domain/models/metronome_preset.dart';
 import '../../domain/models/hr_zones.dart';
 import '../../domain/services/zones_calculator.dart';
 
@@ -21,6 +24,8 @@ const _keyEnableStartExerciseAlert = 'enable_start_exercise_alert';
 const _keyStartExerciseBpm = 'start_exercise_bpm';
 const _keyEnableTimerStopwatch = 'enable_timer_stopwatch';
 const _keyEnableMusicControls = 'enable_music_controls';
+const _keyEnableMetronome = 'enable_metronome';
+const _keyMetronomeVoiceCues = 'metronome_voice_cues';
 const _keyShowClockOnHome = 'show_clock_on_home';
 const _keyShowConnectInHeader = 'show_connect_in_header';
 const _keyTimerMode = 'timer_mode';
@@ -36,6 +41,9 @@ const _keyZoneRangeVoice = 'zone_range_voice';
 const _keyManualRangeBeep = 'manual_range_beep';
 const _keyManualRangeVoice = 'manual_range_voice';
 const _keySessionsCustomDirPath = 'sessions_custom_dir_path';
+const _keyMetronomeBpm = 'metronome_bpm';
+const _keyMetronomeVibration = 'metronome_vibration';
+const _keyMetronomePresets = 'metronome_presets';
 
 /// Хранилище настроек
 class SettingsStorage {
@@ -162,6 +170,82 @@ class SettingsStorage {
 
   set enableMusicControls(bool value) {
     _prefs.setBool(_keyEnableMusicControls, value);
+  }
+
+  bool get enableMetronome =>
+      _prefs.getBool(_keyEnableMetronome) ?? true;
+
+  set enableMetronome(bool value) {
+    _prefs.setBool(_keyEnableMetronome, value);
+  }
+
+  bool get metronomeVoiceCuesEnabled =>
+      _prefs.getBool(_keyMetronomeVoiceCues) ?? true;
+
+  set metronomeVoiceCuesEnabled(bool value) {
+    _prefs.setBool(_keyMetronomeVoiceCues, value);
+  }
+
+
+  int get metronomeBpm =>
+      AppUtils.clamp(_prefs.getInt(_keyMetronomeBpm) ?? 120, 40, 220);
+
+  set metronomeBpm(int value) {
+    _prefs.setInt(_keyMetronomeBpm, AppUtils.clamp(value, 40, 220));
+  }
+
+  bool get metronomeVibrationEnabled =>
+      _prefs.getBool(_keyMetronomeVibration) ?? true;
+
+  set metronomeVibrationEnabled(bool value) {
+    _prefs.setBool(_keyMetronomeVibration, value);
+  }
+
+  List<MetronomePreset> get metronomePresets {
+    final raw = _prefs.getString(_keyMetronomePresets);
+    if (raw == null || raw.isEmpty) {
+      return const [
+        MetronomePreset(
+          id: 'preset_pushups',
+          name: 'Push-ups',
+          countdownSec: 3,
+          negativeSec: 3,
+          pauseSec: 0,
+          pressSec: 2,
+          restSec: 2,
+          cycleMode: MetronomeCycleMode.fixed,
+          fixedCycles: 10,
+        ),
+        MetronomePreset(
+          id: 'preset_squat',
+          name: 'Squats',
+          countdownSec: 3,
+          negativeSec: 2,
+          pauseSec: 0,
+          pressSec: 2,
+          restSec: 1,
+          cycleMode: MetronomeCycleMode.fixed,
+          fixedCycles: 15,
+        ),
+      ];
+    }
+    try {
+      final parsed = jsonDecode(raw);
+      if (parsed is List) {
+        return parsed
+            .whereType<Map>()
+            .map((e) => MetronomePreset.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  set metronomePresets(List<MetronomePreset> value) {
+    _prefs.setString(
+      _keyMetronomePresets,
+      jsonEncode(value.map((p) => p.toJson()).toList()),
+    );
   }
 
   bool get showClockOnHome => _prefs.getBool(_keyShowClockOnHome) ?? true;

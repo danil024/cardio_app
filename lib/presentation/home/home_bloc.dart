@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/constants.dart';
@@ -12,11 +13,15 @@ import '../../data/audio/notification_audio_service.dart';
 import '../../domain/models/hr_reading.dart';
 import '../../domain/models/hr_session.dart';
 import '../../domain/models/hr_zones.dart';
+import '../../domain/models/metronome_preset.dart';
 
 part 'home_event.dart';
 part 'home_state.dart';
 
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
+  static const int _phaseTickBpm = 60;
+  static const Duration _chartRetentionWindow = Duration(minutes: 30);
+
   HomeBloc({
     required BleHeartRateService bleService,
     required SessionStorage sessionStorage,
@@ -32,6 +37,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           timerMode: _timerModeFromSettings(settingsStorage.timerMode),
           timerDurationSeconds: settingsStorage.timerDurationSeconds,
           timerRemainingSeconds: settingsStorage.timerDurationSeconds,
+          metronomeBpm: settingsStorage.metronomeBpm,
+          metronomePresets: settingsStorage.metronomePresets,
+          selectedMetronomePresetId: settingsStorage.metronomePresets.isNotEmpty
+              ? settingsStorage.metronomePresets.first.id
+              : null,
+          metronomeVibrationEnabled: settingsStorage.metronomeVibrationEnabled,
+          metronomeVoiceCuesEnabled: settingsStorage.metronomeVoiceCuesEnabled,
         )) {
     _audioService.setTtsLanguage(settingsStorage.ttsLanguage);
     _bleService.setMockInterval(
@@ -62,6 +74,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeForceCloseHandled>(_onForceCloseHandled);
     on<HomeDataWatchdogTicked>(_onDataWatchdogTicked);
     on<HomeAppPausedCheckpointRequested>(_onAppPausedCheckpointRequested);
+    on<HomeMetronomeBpmChanged>(_onMetronomeBpmChanged);
+    on<HomeMetronomePresetSelected>(_onMetronomePresetSelected);
+    on<HomeMetronomePresetSaved>(_onMetronomePresetSaved);
+    on<HomeMetronomePresetDeleted>(_onMetronomePresetDeleted);
+    on<HomeMetronomeSessionStarted>(_onMetronomeSessionStarted);
+    on<HomeMetronomeSessionPauseToggled>(_onMetronomeSessionPauseToggled);
+    on<HomeMetronomeSessionStopped>(_onMetronomeSessionStopped);
+    on<HomeMetronomePhaseTicked>(_onMetronomePhaseTicked);
 
     _bleStatusSub = _bleService.statusStream.listen((s) {
       add(HomeBleStatusChanged(s));
@@ -80,12 +100,20 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   StreamSubscription<BleConnectionStatus>? _bleStatusSub;
   StreamSubscription<HrReading>? _hrSub;
   final List<HrReading> _sessionReadings = [];
+  final List<HrReading> _recentReadings = [];
   Timer? _timerTicker;
   Timer? _dataWatchdogTimer;
   Timer? _reconnectAttemptTimer;
   Timer? _reconnectSaveTimer;
   Timer? _reconnectGiveUpTimer;
+  Timer? _metronomePhaseTimer;
+  DateTime? _metronomePhaseEndsAt;
+  bool _metronomePhaseSwitchInFlight = false;
+  MetronomePreset? _activeMetronomePreset;
+  MetronomePhase _activeMetronomePhase = MetronomePhase.finished;
+  int _activeMetronomeCycles = 0;
   bool _manualDisconnectRequested = false;
+  DateTime? _connectionGapStartedAt;
   bool _reconnectFlowActive = false;
   bool _reconnectSaveDone = false;
   bool _reconnectAttemptInFlight = false;
@@ -128,6 +156,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeDisconnectRequested event,
     Emitter<HomeState> emit,
   ) async {
+    if (state.isMetronomeRunning) {
+      await _audioService.stopMetronome();
+    }
     _manualDisconnectRequested = true;
     _cancelReconnectFlow();
     _lastHeartRateAt = null;
@@ -144,6 +175,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       bleStatus: BleConnectionStatus.disconnected,
       isTestMode: false,
       shouldForceCloseApp: false,
+      isMetronomeRunning: false,
+      isMetronomeSessionRunning: false,
+      isMetronomeSessionPaused: false,
+      metronomePhase: MetronomePhase.finished,
+      metronomePhaseRemainingSec: 0,
     ));
   }
 
@@ -152,6 +188,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     Emitter<HomeState> emit,
   ) async {
     if (state.isTestMode) {
+      if (state.isMetronomeRunning) {
+        await _audioService.stopMetronome();
+      }
       _manualDisconnectRequested = true;
       _cancelReconnectFlow();
       _lastHeartRateAt = null;
@@ -160,6 +199,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         bleStatus: BleConnectionStatus.disconnected,
         isTestMode: false,
         shouldForceCloseApp: false,
+        isMetronomeRunning: false,
+        isMetronomeSessionRunning: false,
+        isMetronomeSessionPaused: false,
+        metronomePhase: MetronomePhase.finished,
+        metronomePhaseRemainingSec: 0,
       ));
       return;
     }
@@ -179,6 +223,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     final nextStatus = event.status;
 
     if (nextStatus == BleConnectionStatus.connected) {
+      final finishedGap = _finishConnectionGapIfAny();
       _manualDisconnectRequested = false;
       _cancelReconnectFlow();
       _lastHeartRateAt = DateTime.now();
@@ -189,6 +234,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         bleStatus: nextStatus,
         errorMessage: null,
         shouldForceCloseApp: false,
+        lastConnectionGapSeconds: finishedGap?.durationSeconds,
+        connectionGaps: _trimConnectionGaps(state.connectionGaps, finishedGap),
+        activeConnectionGapStartedAt: null,
       ));
       return;
     }
@@ -198,6 +246,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         (nextStatus == BleConnectionStatus.disconnected ||
             nextStatus == BleConnectionStatus.error)) {
       _manualDisconnectRequested = false;
+      _connectionGapStartedAt = null;
       _cancelReconnectFlow();
       if (state.isRecording) {
         add(const HomeStopRecording());
@@ -206,6 +255,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         bleStatus: nextStatus,
         isTestMode: false,
         shouldForceCloseApp: false,
+        activeConnectionGapStartedAt: null,
       ));
       _lastHeartRateAt = null;
       return;
@@ -217,6 +267,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         (nextStatus == BleConnectionStatus.disconnected ||
             nextStatus == BleConnectionStatus.error);
     if (unexpectedDrop) {
+      _markConnectionGapStarted();
       _startReconnectFlow();
     }
 
@@ -225,6 +276,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       isTestMode: nextStatus == BleConnectionStatus.disconnected
           ? false
           : state.isTestMode,
+      activeConnectionGapStartedAt: _connectionGapStartedAt,
     ));
     if (nextStatus != BleConnectionStatus.connected) {
       _lastHeartRateAt = null;
@@ -244,9 +296,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           session.copyWith(readings: List<HrReading>.from(_sessionReadings));
     }
 
-    final sourceForChart = state.isRecording
-        ? List<HrReading>.from(_sessionReadings)
-        : (List<HrReading>.from(state.readings)..add(reading));
+    _recentReadings
+      ..add(reading)
+      ..removeWhere(
+        (r) => DateTime.now().difference(r.timestamp) > _chartRetentionWindow,
+      );
+    final sourceForChart = List<HrReading>.from(_recentReadings);
     final lightweightChartReadings = _buildChartReadings(
       source: sourceForChart,
       chartMinutes: state.chartWindowMinutes,
@@ -320,36 +375,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeSaveHistoryRequested event,
     Emitter<HomeState> emit,
   ) async {
-    final currentSession = state.session;
-    if (!state.isRecording || currentSession == null || _sessionReadings.isEmpty) {
-      return;
-    }
-    final snapshot = currentSession.copyWith(
-      endedAt: DateTime.now(),
-      readings: List<HrReading>.from(_sessionReadings),
-    );
-    try {
-      await _sessionStorage.saveSession(snapshot);
-    } catch (e) {
-      emit(state.copyWith(
-        errorMessage: 'Failed to save session: $e',
-      ));
-      return;
-    }
-
-    final nextSession = HrSession(
-      id: const Uuid().v4(),
-      startedAt: DateTime.now(),
-      zones: _settingsStorage.zones,
-      readings: const [],
-    );
-    _sessionReadings.clear();
-
-    emit(state.copyWith(
-      session: nextSession,
-      isRecording: true,
-      historySaveVersion: state.historySaveVersion + 1,
-    ));
+    await _saveSegmentAndContinue(emit);
   }
 
   void _onDismissCleanupDialog(
@@ -383,13 +409,28 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     );
     _audioService.setTtsLanguage(_settingsStorage.ttsLanguage);
     final nextChartWindowMinutes = _settingsStorage.chartWindowMinutes;
-    final chartSource = state.isRecording
-        ? List<HrReading>.from(_sessionReadings)
-        : List<HrReading>.from(state.readings);
+    final chartSource = List<HrReading>.from(_recentReadings);
     final recalculatedReadings = _buildChartReadings(
       source: chartSource,
       chartMinutes: nextChartWindowMinutes,
     );
+    final nextMetronomeEnabled = _settingsStorage.enableMetronome;
+    final nextMetronomeBpm = _settingsStorage.metronomeBpm;
+    final nextMetronomePresets = _settingsStorage.metronomePresets;
+    final nextMetronomeVibration = _settingsStorage.metronomeVibrationEnabled;
+    final nextMetronomeVoiceCues = _settingsStorage.metronomeVoiceCuesEnabled;
+    if (!nextMetronomeEnabled && state.isMetronomeSessionRunning) {
+      unawaited(_stopMetronomeSessionInternal(emit));
+    }
+    if (state.isMetronomeRunning &&
+        nextMetronomeBpm != state.metronomeBpm) {
+      unawaited(_audioService.updateMetronomeBpm(bpm: nextMetronomeBpm));
+    }
+    final nextSelected = nextMetronomePresets.any(
+      (p) => p.id == state.selectedMetronomePresetId,
+    )
+        ? state.selectedMetronomePresetId
+        : (nextMetronomePresets.isNotEmpty ? nextMetronomePresets.first.id : null);
     emit(state.copyWith(
       zones: _settingsStorage.zones,
       chartWindowMinutes: nextChartWindowMinutes,
@@ -400,6 +441,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           ? state.timerRemainingSeconds
           : _settingsStorage.timerDurationSeconds,
       settingsVersion: state.settingsVersion + 1,
+      metronomeBpm: nextMetronomeBpm,
+      metronomePresets: nextMetronomePresets,
+      selectedMetronomePresetId: nextSelected,
+      metronomeVibrationEnabled: nextMetronomeVibration,
+      metronomeVoiceCuesEnabled: nextMetronomeVoiceCues,
+      isMetronomeRunning: state.isMetronomeRunning,
     ));
   }
 
@@ -593,9 +640,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
 
     emit(state.copyWith(
-      shouldForceCloseApp: true,
+      shouldForceCloseApp: false,
       errorMessage:
-          'Connection lost and could not be restored within 25 seconds.',
+          'Connection lost and could not be restored within 5 minutes.',
       bleStatus: BleConnectionStatus.error,
       isTestMode: false,
     ));
@@ -615,13 +662,145 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeAppPausedCheckpointRequested event,
     Emitter<HomeState> emit,
   ) async {
-    if (!state.isRecording) {
+    if (!state.isRecording ||
+        state.bleStatus != BleConnectionStatus.connected ||
+        _sessionReadings.isEmpty) {
       return;
     }
-    if (_reconnectFlowActive) {
-      _cancelReconnectFlow();
+    await _saveSegmentAndContinue(emit);
+  }
+
+  Future<void> _onMetronomeBpmChanged(
+    HomeMetronomeBpmChanged event,
+    Emitter<HomeState> emit,
+  ) async {
+    final nextBpm = event.bpm.clamp(40, 220);
+    _settingsStorage.metronomeBpm = nextBpm;
+    if (state.isMetronomeRunning) {
+      await _audioService.updateMetronomeBpm(bpm: nextBpm);
     }
-    await _persistCurrentSession(emit, suggestCleanup: false);
+    emit(state.copyWith(metronomeBpm: nextBpm));
+  }
+
+  void _onMetronomePresetSelected(
+    HomeMetronomePresetSelected event,
+    Emitter<HomeState> emit,
+  ) {
+    emit(state.copyWith(selectedMetronomePresetId: event.presetId));
+  }
+
+  Future<void> _onMetronomePresetSaved(
+    HomeMetronomePresetSaved event,
+    Emitter<HomeState> emit,
+  ) async {
+    final current = List<MetronomePreset>.from(state.metronomePresets);
+    final index = current.indexWhere((p) => p.id == event.preset.id);
+    if (index == -1) {
+      current.add(event.preset);
+    } else {
+      current[index] = event.preset;
+    }
+    _settingsStorage.metronomePresets = current;
+    emit(state.copyWith(
+      metronomePresets: current,
+      selectedMetronomePresetId: event.preset.id,
+    ));
+  }
+
+  Future<void> _onMetronomePresetDeleted(
+    HomeMetronomePresetDeleted event,
+    Emitter<HomeState> emit,
+  ) async {
+    final current = List<MetronomePreset>.from(state.metronomePresets)
+      ..removeWhere((p) => p.id == event.presetId);
+    _settingsStorage.metronomePresets = current;
+    final nextSelected = current.isNotEmpty ? current.first.id : null;
+    if (state.isMetronomeSessionRunning &&
+        state.selectedMetronomePresetId == event.presetId) {
+      await _stopMetronomeSessionInternal(emit);
+    }
+    emit(state.copyWith(
+      metronomePresets: current,
+      selectedMetronomePresetId: nextSelected,
+    ));
+  }
+
+  Future<void> _onMetronomeSessionStarted(
+    HomeMetronomeSessionStarted event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (!_settingsStorage.enableMetronome) {
+      return;
+    }
+    final preset = _selectedPreset();
+    if (preset == null) {
+      return;
+    }
+    await _startMetronomeSessionInternal(emit, preset);
+  }
+
+  Future<void> _onMetronomeSessionPauseToggled(
+    HomeMetronomeSessionPauseToggled event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (!state.isMetronomeSessionRunning) {
+      return;
+    }
+    final nextPaused = !state.isMetronomeSessionPaused;
+    if (nextPaused) {
+      await _audioService.stopMetronome();
+    } else {
+      await _audioService.startMetronome(
+        bpm: _phaseTickBpm,
+        playImmediateTick: false,
+      );
+    }
+    emit(state.copyWith(isMetronomeSessionPaused: nextPaused));
+  }
+
+  Future<void> _onMetronomeSessionStopped(
+    HomeMetronomeSessionStopped event,
+    Emitter<HomeState> emit,
+  ) async {
+    await _stopMetronomeSessionInternal(emit);
+  }
+
+  Future<void> _onMetronomePhaseTicked(
+    HomeMetronomePhaseTicked event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (!state.isMetronomeSessionRunning) return;
+    final endsAt = _metronomePhaseEndsAt;
+    final preset = _activeMetronomePreset;
+    if (endsAt == null || preset == null) return;
+
+    if (state.isMetronomeSessionPaused) {
+      _metronomePhaseEndsAt =
+          _metronomePhaseEndsAt?.add(const Duration(seconds: 1));
+      return;
+    }
+
+    final remaining = endsAt.difference(DateTime.now()).inSeconds;
+    if (remaining <= 0) {
+      if (_metronomePhaseSwitchInFlight) {
+        return;
+      }
+      final next = _nextPhase(preset, _activeMetronomePhase, _activeMetronomeCycles);
+      _metronomePhaseSwitchInFlight = true;
+      try {
+        await _switchToPhase(emit, preset, next.$1, next.$2);
+      } finally {
+        _metronomePhaseSwitchInFlight = false;
+      }
+      return;
+    }
+
+    emit(state.copyWith(
+      metronomePhase: _activeMetronomePhase,
+      metronomePhaseRemainingSec: remaining,
+      metronomeCompletedCycles: _activeMetronomeCycles,
+      isMetronomeRunning: true,
+    ));
   }
 
   Future<void> _onDataWatchdogTicked(
@@ -642,19 +821,21 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       return;
     }
 
+    _markConnectionGapStarted();
     _startReconnectFlow(
       saveDelay: Duration.zero,
-      giveUpDelay: const Duration(seconds: 20),
+      giveUpDelay: const Duration(minutes: 5),
     );
     emit(state.copyWith(
       bleStatus: BleConnectionStatus.error,
       errorMessage: 'Heart rate signal lost. Reconnecting...',
+      activeConnectionGapStartedAt: _connectionGapStartedAt,
     ));
   }
 
   void _startReconnectFlow({
     Duration saveDelay = const Duration(seconds: 5),
-    Duration giveUpDelay = const Duration(seconds: 25),
+    Duration giveUpDelay = const Duration(minutes: 5),
   }) {
     if (_reconnectFlowActive) {
       return;
@@ -676,6 +857,36 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _reconnectGiveUpTimer = Timer(giveUpDelay, () {
       add(const HomeReconnectGiveUpReached());
     });
+  }
+
+  void _markConnectionGapStarted() {
+    _connectionGapStartedAt ??= DateTime.now();
+  }
+
+  ConnectionGap? _finishConnectionGapIfAny() {
+    final startedAt = _connectionGapStartedAt;
+    if (startedAt == null) {
+      return null;
+    }
+    _connectionGapStartedAt = null;
+    final endedAt = DateTime.now();
+    if (!endedAt.isAfter(startedAt)) {
+      return null;
+    }
+    return ConnectionGap(startedAt: startedAt, endedAt: endedAt);
+  }
+
+  List<ConnectionGap> _trimConnectionGaps(
+    List<ConnectionGap> current,
+    ConnectionGap? appended,
+  ) {
+    final next = List<ConnectionGap>.from(current);
+    if (appended != null) {
+      next.add(appended);
+    }
+    final cutoff = DateTime.now().subtract(_chartRetentionWindow);
+    next.removeWhere((gap) => gap.endedAt.isBefore(cutoff));
+    return next;
   }
 
   void _cancelReconnectFlow() {
@@ -733,6 +944,186 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     return true;
   }
 
+  Future<bool> _saveSegmentAndContinue(Emitter<HomeState> emit) async {
+    final currentSession = state.session;
+    if (!state.isRecording || currentSession == null || _sessionReadings.isEmpty) {
+      return false;
+    }
+    final snapshot = currentSession.copyWith(
+      endedAt: DateTime.now(),
+      readings: List<HrReading>.from(_sessionReadings),
+    );
+    try {
+      await _sessionStorage.saveSession(snapshot);
+    } catch (e) {
+      emit(state.copyWith(
+        errorMessage: 'Failed to save session: $e',
+      ));
+      return false;
+    }
+
+    final nextSession = HrSession(
+      id: const Uuid().v4(),
+      startedAt: DateTime.now(),
+      zones: _settingsStorage.zones,
+      readings: const [],
+    );
+    _sessionReadings.clear();
+    emit(state.copyWith(
+      session: nextSession,
+      isRecording: true,
+      historySaveVersion: state.historySaveVersion + 1,
+      errorMessage: null,
+    ));
+    return true;
+  }
+
+  MetronomePreset? _selectedPreset() {
+    final selectedId = state.selectedMetronomePresetId;
+    if (selectedId == null) return null;
+    for (final preset in state.metronomePresets) {
+      if (preset.id == selectedId) return preset;
+    }
+    return null;
+  }
+
+  Future<void> _startMetronomeSessionInternal(
+    Emitter<HomeState> emit,
+    MetronomePreset preset,
+  ) async {
+    _metronomePhaseSwitchInFlight = false;
+    _metronomePhaseTimer?.cancel();
+    _metronomePhaseTimer = null;
+    _metronomePhaseEndsAt = null;
+    emit(state.copyWith(
+      isMetronomeSessionRunning: true,
+      isMetronomeSessionPaused: false,
+      metronomeCompletedCycles: 0,
+      metronomeTargetCycles: preset.cycleMode == MetronomeCycleMode.fixed
+          ? preset.fixedCycles
+          : null,
+    ));
+    await _switchToPhase(emit, preset, MetronomePhase.countdown, 0);
+  }
+
+  Future<void> _stopMetronomeSessionInternal(Emitter<HomeState> emit) async {
+    _metronomePhaseSwitchInFlight = false;
+    _metronomePhaseTimer?.cancel();
+    _metronomePhaseTimer = null;
+    _metronomePhaseEndsAt = null;
+    _activeMetronomePreset = null;
+    _activeMetronomePhase = MetronomePhase.finished;
+    _activeMetronomeCycles = 0;
+    await _audioService.stopMetronome();
+    emit(state.copyWith(
+      isMetronomeSessionRunning: false,
+      isMetronomeSessionPaused: false,
+      isMetronomeRunning: false,
+      metronomePhase: MetronomePhase.finished,
+      metronomePhaseRemainingSec: 0,
+      metronomeCompletedCycles: 0,
+      metronomeTargetCycles: null,
+    ));
+  }
+
+  Future<void> _switchToPhase(
+    Emitter<HomeState> emit,
+    MetronomePreset preset,
+    MetronomePhase targetPhase,
+    int cyclesDone,
+  ) async {
+    var phase = targetPhase;
+    var duration = preset.durationForPhase(phase);
+    var cycles = cyclesDone;
+
+    while (duration <= 0 && phase != MetronomePhase.finished) {
+      final next = _nextPhase(preset, phase, cycles);
+      phase = next.$1;
+      cycles = next.$2;
+      duration = preset.durationForPhase(phase);
+    }
+
+    if (phase == MetronomePhase.finished) {
+      await _stopMetronomeSessionInternal(emit);
+      return;
+    }
+
+    await _audioService.stopMetronome();
+    await _audioService.playMetronomePhaseChangeCue();
+
+    if (state.metronomeVoiceCuesEnabled) {
+      await _audioService.speakMetronomeCue(_phaseCueEn(phase));
+    }
+
+    if (state.metronomeVibrationEnabled) {
+      HapticFeedback.mediumImpact();
+    }
+
+    await _audioService.startMetronome(
+      bpm: _phaseTickBpm,
+      playImmediateTick: false,
+    );
+    _activeMetronomePreset = preset;
+    _activeMetronomePhase = phase;
+    _activeMetronomeCycles = cycles;
+    _metronomePhaseEndsAt = DateTime.now().add(Duration(seconds: duration));
+    _metronomePhaseTimer?.cancel();
+    _metronomePhaseTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => add(const HomeMetronomePhaseTicked()),
+    );
+
+    emit(state.copyWith(
+      metronomePhase: phase,
+      metronomePhaseRemainingSec: duration,
+      metronomeCompletedCycles: cycles,
+      isMetronomeRunning: true,
+    ));
+  }
+
+  String _phaseCueEn(MetronomePhase phase) {
+    switch (phase) {
+      case MetronomePhase.countdown:
+        return 'Countdown';
+      case MetronomePhase.negative:
+        return 'Negative';
+      case MetronomePhase.pause:
+        return 'Pause';
+      case MetronomePhase.press:
+        return 'Press';
+      case MetronomePhase.rest:
+        return 'Rest';
+      case MetronomePhase.finished:
+        return 'Finished';
+    }
+  }
+
+  (MetronomePhase, int) _nextPhase(
+    MetronomePreset preset,
+    MetronomePhase phase,
+    int cyclesDone,
+  ) {
+    switch (phase) {
+      case MetronomePhase.countdown:
+        return (MetronomePhase.negative, cyclesDone);
+      case MetronomePhase.negative:
+        return (MetronomePhase.pause, cyclesDone);
+      case MetronomePhase.pause:
+        return (MetronomePhase.press, cyclesDone);
+      case MetronomePhase.press:
+        return (MetronomePhase.rest, cyclesDone);
+      case MetronomePhase.rest:
+        final nextCycles = cyclesDone + 1;
+        if (preset.cycleMode == MetronomeCycleMode.fixed &&
+            nextCycles >= preset.fixedCycles) {
+          return (MetronomePhase.finished, nextCycles);
+        }
+        return (MetronomePhase.negative, nextCycles);
+      case MetronomePhase.finished:
+        return (MetronomePhase.finished, cyclesDone);
+    }
+  }
+
   void _startTimerTicker() {
     _stopTimerTicker();
     _timerTicker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -756,7 +1147,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     required List<HrReading> source,
     required int chartMinutes,
   }) {
-    final cutoff = DateTime.now().subtract(Duration(minutes: chartMinutes));
+    final effectiveChartMinutes = chartMinutes < 30 ? 30 : chartMinutes;
+    final cutoff = DateTime.now().subtract(Duration(minutes: effectiveChartMinutes));
     final chartReadings = source.where((r) => r.timestamp.isAfter(cutoff)).toList();
     const maxPoints = 5000;
     return chartReadings.length <= maxPoints
@@ -766,6 +1158,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   @override
   Future<void> close() {
+    unawaited(_audioService.stopMetronome());
+    _metronomePhaseTimer?.cancel();
+    _metronomePhaseTimer = null;
+    _metronomePhaseEndsAt = null;
     _stopTimerTicker();
     _dataWatchdogTimer?.cancel();
     _dataWatchdogTimer = null;
