@@ -48,20 +48,21 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
   Future<void> _shareCsv() async {
     await SharePlus.instance.share(
-      ShareParams(files: [XFile(widget.summary.csvPath)]),
+      ShareParams(files: [XFile(widget.summary.coachSummaryPath)]),
     );
   }
 
   Future<void> _shareJson() async {
     await SharePlus.instance.share(
-      ShareParams(files: [XFile(widget.summary.jsonPath)]),
+      ShareParams(files: [XFile(widget.summary.coachSummaryPath)]),
     );
   }
 
   Future<void> _copyCsvToClipboard() async {
     final languageCode = context.read<SettingsStorage>().uiLanguage;
-    final content =
-        await context.read<HistoryRepository>().loadCsvContent(widget.summary);
+    final content = await context
+        .read<HistoryRepository>()
+        .loadCoachSummaryContent(widget.summary);
     await Clipboard.setData(ClipboardData(text: content));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -71,8 +72,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
   Future<void> _copyJsonToClipboard() async {
     final languageCode = context.read<SettingsStorage>().uiLanguage;
-    final content =
-        await context.read<HistoryRepository>().loadJsonContent(widget.summary);
+    final content = await context
+        .read<HistoryRepository>()
+        .loadCoachSummaryContent(widget.summary);
     await Clipboard.setData(ClipboardData(text: content));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

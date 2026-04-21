@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.2.0 — 2026-04-21
+
+### Added
+- **Coach summary export**: compact `*.coach.json` session export for trainer review with key HR aggregates and zone distribution.
+- **Tap-to-settings on target zone card**: quick navigation from home screen target-zone module to HR target settings.
+
+### Changed
+- **Session continuity policy**: recording now stays in one session across reconnect attempts and app pause; session split happens only when a BLE disconnect gap exceeds 10 minutes.
+- **History copy/share behavior**: text export actions now use compact coach summary output by default instead of full raw logs.
+- **Media module layout**: merged play/pause into a single center button and aligned controls to 3 symmetric buttons.
+- **Home screen resilience on rotation**: main layout now scrolls on constrained heights to avoid overflow.
+
+### Fixed
+- **Android debug tooling**: added `INTERNET` permission in manifest to restore Dart VM service startup and enable `r`/`R` hot reload/restart.
+- **Metronome preset editor crash**: fixed red-screen crash when saving/editing presets caused by premature `TextEditingController` disposal.
+
 ## v2.0.0 — 2026-03-13
 
 ### Added

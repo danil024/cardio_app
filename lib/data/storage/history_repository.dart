@@ -18,6 +18,7 @@ class SessionSummary {
     required this.zones,
     required this.jsonPath,
     required this.csvPath,
+    required this.coachSummaryPath,
   });
 
   final String id;
@@ -30,6 +31,7 @@ class SessionSummary {
   final HrZones zones;
   final String jsonPath;
   final String csvPath;
+  final String coachSummaryPath;
 }
 
 class SessionDetail {
@@ -83,6 +85,7 @@ class HistoryRepository {
       final duration = endedAt?.difference(startedAt) ??
           readings.last.timestamp.difference(readings.first.timestamp);
       final csvPath = file.path.replaceAll('.json', '.csv');
+      final coachSummaryPath = file.path.replaceAll('.json', '.coach.json');
 
       summaries.add(
         SessionSummary(
@@ -96,6 +99,7 @@ class HistoryRepository {
           zones: zones,
           jsonPath: file.path,
           csvPath: csvPath,
+          coachSummaryPath: coachSummaryPath,
         ),
       );
     }
@@ -110,11 +114,15 @@ class HistoryRepository {
   Future<void> deleteSession(SessionSummary summary) async {
     final jsonFile = File(summary.jsonPath);
     final csvFile = File(summary.csvPath);
+    final coachSummaryFile = File(summary.coachSummaryPath);
     if (await jsonFile.exists()) {
       await jsonFile.delete();
     }
     if (await csvFile.exists()) {
       await csvFile.delete();
+    }
+    if (await coachSummaryFile.exists()) {
+      await coachSummaryFile.delete();
     }
   }
 
@@ -124,7 +132,9 @@ class HistoryRepository {
     var deleted = 0;
     await for (final entity in dir.list(followLinks: false)) {
       if (entity is File &&
-          (entity.path.endsWith('.json') || entity.path.endsWith('.csv'))) {
+          (entity.path.endsWith('.json') ||
+              entity.path.endsWith('.csv') ||
+              entity.path.endsWith('.coach.json'))) {
         await entity.delete();
         deleted++;
       }
@@ -150,6 +160,17 @@ class HistoryRepository {
 
   Future<String> loadJsonContent(SessionSummary summary) async {
     return File(summary.jsonPath).readAsString();
+  }
+
+  Future<String> loadCoachSummaryContent(SessionSummary summary) async {
+    final coachFile = File(summary.coachSummaryPath);
+    if (await coachFile.exists()) {
+      return coachFile.readAsString();
+    }
+    final raw = await File(summary.jsonPath).readAsString();
+    final map = jsonDecode(raw) as Map<String, dynamic>;
+    map.remove('readings');
+    return jsonEncode(map);
   }
 
   List<HrReading> _parseReadings(dynamic rawReadings) {

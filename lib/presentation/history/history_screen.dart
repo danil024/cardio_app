@@ -106,7 +106,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _copyCsvContent(SessionSummary summary) async {
     final languageCode = context.read<SettingsStorage>().uiLanguage;
     final repository = context.read<HistoryRepository>();
-    final content = await repository.loadCsvContent(summary);
+    final content = await repository.loadCoachSummaryContent(summary);
     await Clipboard.setData(ClipboardData(text: content));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -117,7 +117,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _copyJsonContent(SessionSummary summary) async {
     final languageCode = context.read<SettingsStorage>().uiLanguage;
     final repository = context.read<HistoryRepository>();
-    final content = await repository.loadJsonContent(summary);
+    final content = await repository.loadCoachSummaryContent(summary);
     await Clipboard.setData(ClipboardData(text: content));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -153,12 +153,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     switch (action) {
       case HistoryFileAction.shareCsv:
         await SharePlus.instance.share(
-          ShareParams(files: [XFile(summary.csvPath)]),
+          ShareParams(files: [XFile(summary.coachSummaryPath)]),
         );
         break;
       case HistoryFileAction.shareJson:
         await SharePlus.instance.share(
-          ShareParams(files: [XFile(summary.jsonPath)]),
+          ShareParams(files: [XFile(summary.coachSummaryPath)]),
         );
         break;
       case HistoryFileAction.sharePng:
@@ -201,8 +201,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
     if (action == null) return;
     final files = action == HistoryFileAction.shareCsv
-        ? selected.map((s) => XFile(s.csvPath)).toList()
-        : selected.map((s) => XFile(s.jsonPath)).toList();
+        ? selected.map((s) => XFile(s.coachSummaryPath)).toList()
+        : selected.map((s) => XFile(s.coachSummaryPath)).toList();
     await SharePlus.instance.share(ShareParams(files: files));
   }
 
@@ -234,8 +234,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final sb = StringBuffer();
     for (final s in selected) {
       final content = action == HistoryFileAction.copyCsv
-          ? await repository.loadCsvContent(s)
-          : await repository.loadJsonContent(s);
+          ? await repository.loadCoachSummaryContent(s)
+          : await repository.loadCoachSummaryContent(s);
       sb.writeln('=== ${s.id} ===');
       sb.writeln(content);
       sb.writeln();

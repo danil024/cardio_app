@@ -75,6 +75,7 @@ class SessionStorage {
 
     await _saveCsv(dir, baseName, session);
     await _saveJson(dir, baseName, session);
+    await _saveCoachSummaryJson(dir, baseName, session);
 
     return dir.path;
   }
@@ -99,6 +100,13 @@ class SessionStorage {
     final file = File('${dir.path}/$baseName.json');
     final json = session.toJson();
     await file.writeAsString(const JsonEncoder.withIndent('  ').convert(json));
+  }
+
+  Future<void> _saveCoachSummaryJson(
+      Directory dir, String baseName, HrSession session) async {
+    final file = File('${dir.path}/$baseName.coach.json');
+    final json = session.toCoachSummaryJson();
+    await file.writeAsString(jsonEncode(json));
   }
 
   Future<List<File>> listJsonSessions() async {
@@ -141,11 +149,13 @@ class SessionStorage {
     final sessions = <String, List<File>>{};
     await for (final entity in dir.list(followLinks: false)) {
       if (entity is File &&
-          (entity.path.endsWith('.csv') || entity.path.endsWith('.json'))) {
+          (entity.path.endsWith('.csv') ||
+              entity.path.endsWith('.json') ||
+              entity.path.endsWith('.coach.json'))) {
         final baseName = entity.path
             .split('/')
             .last
-            .replaceAll(RegExp(r'\.(csv|json)$'), '');
+            .replaceAll(RegExp(r'\.(coach\.json|csv|json)$'), '');
         sessions.putIfAbsent(baseName, () => []).add(entity);
       }
     }

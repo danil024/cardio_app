@@ -120,6 +120,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   DateTime? _lastHeartRateAt;
 
   static const Duration _silentDropThreshold = Duration(seconds: 5);
+  static const Duration _sessionSplitGapThreshold = Duration(minutes: 10);
 
   static WorkoutTimerMode _timerModeFromSettings(String mode) {
     return mode == 'stopwatch'
@@ -224,11 +225,15 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
     if (nextStatus == BleConnectionStatus.connected) {
       final finishedGap = _finishConnectionGapIfAny();
+      final shouldSplitSession = finishedGap != null &&
+          finishedGap.durationSeconds >= _sessionSplitGapThreshold.inSeconds;
       _manualDisconnectRequested = false;
       _cancelReconnectFlow();
       _lastHeartRateAt = DateTime.now();
       if (!state.isRecording) {
         add(const HomeStartRecording());
+      } else if (shouldSplitSession) {
+        await _saveSegmentAndContinue(emit);
       }
       emit(state.copyWith(
         bleStatus: nextStatus,
@@ -610,10 +615,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         _manualDisconnectRequested) {
       return;
     }
-    final success = await _persistCurrentSession(emit, suggestCleanup: false);
-    if (success) {
-      _reconnectSaveDone = true;
-    }
+    // Keep one continuous session; reconnection checkpoints no longer split/save.
+    _reconnectSaveDone = true;
   }
 
   Future<void> _onReconnectGiveUpReached(
@@ -662,12 +665,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeAppPausedCheckpointRequested event,
     Emitter<HomeState> emit,
   ) async {
-    if (!state.isRecording ||
-        state.bleStatus != BleConnectionStatus.connected ||
-        _sessionReadings.isEmpty) {
-      return;
-    }
-    await _saveSegmentAndContinue(emit);
+    // App pause should not split a recording session.
+    return;
   }
 
   Future<void> _onMetronomeBpmChanged(

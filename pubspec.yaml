@@ -1,7 +1,7 @@
 name: cardio_app
 description: Heart rate monitor app for GEOID HS500 sensor.
 publish_to: 'none'
-version: 2.1.0+2
+version: 2.2.0+3
 
 environment:
   sdk: '>=3.2.0 <4.0.0'

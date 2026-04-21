@@ -119,52 +119,61 @@ class _HomeScreenState extends State<HomeScreen>
               showZoneCard: showZoneCard,
             );
             return SafeArea(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: _buildHeader(
-                      context,
-                      state,
-                      languageCode,
-                      settings,
-                    ),
-                  ),
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * chartHeightFactor,
-                    child: Stack(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: HrChart(
-                            readings: state.readings,
-                            connectionGaps: state.connectionGaps,
-                            activeConnectionGapStartedAt:
-                                state.activeConnectionGapStartedAt,
-                            chartWindowMinutes: state.chartWindowMinutes,
-                            showTimerMarker: state.isTimerRunning &&
-                                state.timerMode == WorkoutTimerMode.timer,
-                            timerMarkerTimestamp: state.timerStartedAt,
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: Align(
-                            alignment: const Alignment(0, 0.52),
-                            child: IgnorePointer(
-                              child: _buildPulseBlock(state),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: _buildHeader(
+                              context,
+                              state,
+                              languageCode,
+                              settings,
                             ),
                           ),
-                        ),
-                      ],
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * chartHeightFactor,
+                            child: Stack(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: HrChart(
+                                    readings: state.readings,
+                                    connectionGaps: state.connectionGaps,
+                                    activeConnectionGapStartedAt:
+                                        state.activeConnectionGapStartedAt,
+                                    chartWindowMinutes: state.chartWindowMinutes,
+                                    showTimerMarker: state.isTimerRunning &&
+                                        state.timerMode == WorkoutTimerMode.timer,
+                                    timerMarkerTimestamp: state.timerStartedAt,
+                                  ),
+                                ),
+                                Positioned.fill(
+                                  child: Align(
+                                    alignment: const Alignment(0, 0.52),
+                                    child: IgnorePointer(
+                                      child: _buildPulseBlock(state),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          _buildBottomArea(
+                            context: context,
+                            state: state,
+                            languageCode: languageCode,
+                            settings: settings,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  _buildBottomArea(
-                    context: context,
-                    state: state,
-                    languageCode: languageCode,
-                    settings: settings,
-                  ),
-                ],
+                  );
+                },
               ),
             );
           },
@@ -225,14 +234,28 @@ class _HomeScreenState extends State<HomeScreen>
     if (hr == null || zones == null) return const SizedBox.shrink();
     final settings = context.read<SettingsStorage>();
     final style = _pulseStyle(hr, zones, settings);
-    return _buildUnifiedModuleCard(
-      height: _moduleHeight,
-      child: Center(
-        child: ZoneIndicator(
-          heartRate: hr,
-          zones: zones,
-          color: style.color,
-          useGradient: style.useGradient,
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SettingsScreen(onComplete: () {}),
+          ),
+        );
+        if (context.mounted) {
+          context.read<HomeBloc>().add(const HomeRefreshSettings());
+        }
+      },
+      child: _buildUnifiedModuleCard(
+        height: _moduleHeight,
+        child: Center(
+          child: ZoneIndicator(
+            heartRate: hr,
+            zones: zones,
+            color: style.color,
+            useGradient: style.useGradient,
+          ),
         ),
       ),
     );
@@ -531,13 +554,26 @@ class _HomeScreenState extends State<HomeScreen>
       height: _moduleHeight,
       child: Row(
         children: [
-          Expanded(child: _mediaButton(Icons.skip_previous, () => media.previous())),
+          Expanded(
+            child: _mediaButton(
+              Icons.skip_previous,
+              () => media.previous(),
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _mediaButton(Icons.play_arrow, () => media.play())),
+          Expanded(
+            child: _mediaButton(
+              Icons.play_circle_fill,
+              () => media.playPause(),
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _mediaButton(Icons.pause, () => media.pause())),
-          const SizedBox(width: 8),
-          Expanded(child: _mediaButton(Icons.skip_next, () => media.next())),
+          Expanded(
+            child: _mediaButton(
+              Icons.skip_next,
+              () => media.next(),
+            ),
+          ),
         ],
       ),
     );
@@ -1006,6 +1042,9 @@ class _HomeScreenState extends State<HomeScreen>
       context.read<HomeBloc>().add(HomeMetronomePresetSaved(updated));
     }
 
+    // Bottom sheet can still rebuild during close animation;
+    // postpone dispose to avoid "used after disposed" on TextField listeners.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
     nameCtrl.dispose();
   }
 
